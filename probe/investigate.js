@@ -57,6 +57,19 @@ export const TARGETS = {
     ],
     listingLink: /\/(?:groups\/[^/"']+\/(?:posts|permalink)\/\d+|marketplace\/item\/\d+)/g,
   },
+  roomi2: {
+    name: 'Roomi (follow-up)',
+    robots: ['https://roomiapp.com'],
+    terms: ['https://roomiapp.com/legal?tab=terms', 'https://roomiapp.com/legal'],
+    pages: [
+      { kind: 'rooms search page 2 (?page=2)', url: 'https://roomiapp.com/rooms-for-rent/new-york?page=2' },
+      { kind: 'rooms search roommates view', url: 'https://roomiapp.com/rooms-for-rent/new-york?view=roommates' },
+      { kind: 'browse rooms', url: 'https://roomiapp.com/browse-rooms' },
+      { kind: 'sitemap', url: 'https://roomiapp.com/sitemap.xml' },
+    ],
+    listingLink: /\/listings\/[0-9a-f-]{36}/g,
+    showRobots: true,
+  },
   roomi: {
     name: 'Roomi',
     robots: ['https://roomiapp.com', 'https://roomi.com'],
@@ -147,12 +160,15 @@ async function investigate(id, src) {
     const r = await get(`${origin}/robots.txt`, { manualRedirect: false });
     const ok = r.status === 200 && /text\/plain/.test(r.contentType || '');
     groupsByOrigin[new URL(origin).host] = ok ? parseRobots(r.body) : null;
+    if (src.showRobots && ok) out.robotsText = r.body.slice(0, 4000);
     out.robots.push({ origin, status: r.status, error: r.error, parsed: ok, rootAllowed: ok ? isAllowed(groupsByOrigin[new URL(origin).host], '/', USER_AGENT) : null, excerpt: ok ? r.body.split('\n').filter((l) => /^\s*(user-agent|disallow|allow)\s*:\s*\*?\s*$|^\s*user-agent:\s*\*|^\s*disallow:\s*\/\s*$|^#.*(policy|permission|terms|crawl)/i.test(l)).slice(0, 8) : [] });
   }
   for (const url of src.terms) {
     const r = await get(url, { manualRedirect: false });
-    const text = stripHtml(r.body || '');
-    out.terms.push({ url, status: r.status, antiBot: r.antiBot, clauses: text.split(/(?<=[.;:])\s+/).filter((s) => PROHIBITS.test(s) && s.length > 30).slice(0, 6).map((s) => s.slice(0, 400)) });
+    let flight = '';
+    for (const m of (r.body || '').matchAll(/self\.__next_f\.push\(\[1,("(?:[^"\\]|\\.)*")\]\)/g)) { try { flight += JSON.parse(m[1]); } catch { /* skip */ } }
+    const text = `${stripHtml(r.body || '')} ${flight.replace(/\\n/g, ' ')}`;
+    out.terms.push({ url, status: r.status, antiBot: r.antiBot, bytes: (r.body || '').length, clauses: [...new Set(text.split(/(?<=[.;:])\s+/).filter((s) => PROHIBITS.test(s) && s.length > 30).map((s) => s.slice(0, 700)))].slice(0, 8) });
   }
   const pages = [...src.pages];
   let n = 0;
@@ -185,7 +201,9 @@ async function investigate(id, src) {
 function logSource(s) {
   console.log(`\n=== ${s.name} ===`);
   for (const r of s.robots) console.log(`robots ${r.origin}: HTTP ${r.status ?? r.error} root-allowed=${r.rootAllowed?.allowed ?? '?'} ${r.excerpt.join(' | ')}`);
-  for (const t of s.terms) console.log(`terms ${t.url}: HTTP ${t.status} ${t.antiBot?.join(',') || ''} prohibiting-clauses=${t.clauses.length}${t.clauses[0] ? ` e.g. "${t.clauses[0].slice(0, 200)}"` : ''}`);
+  if (s.robotsText) console.log(`robots.txt full text:\n${s.robotsText}`);
+  for (const t of s.terms) console.log(`terms ${t.url}: HTTP ${t.status} ${t.antiBot?.join(',') || ''} ${t.bytes ?? 0}B prohibiting-clauses=${t.clauses.length}`);
+    for (const c of t.clauses) console.log(`    » ${c}`);
   for (const p of s.pages) {
     console.log(`- ${p.kind}: HTTP ${p.status ?? p.error}${p.redirects?.length ? ` via ${p.redirects.join(', ')}` : ''} ${p.contentType || ''} ${p.bytes ?? 0}B`
       + ` robots=${p.robots.allowed === null ? '?' : p.robots.allowed ? 'allowed' : 'DISALLOWED'}`
