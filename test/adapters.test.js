@@ -1,0 +1,151 @@
+// Adapter tests use SAMPLE fixtures whose *shape* mirrors the live JSON-LD
+// returned during the 2026-09-25 probes (personal text replaced). Passing
+// these proves parsing logic only — live retrieval is verified separately
+// by the scrape workflow's verify mode.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import * as june from '../scraper/sources/junehomes.js';
+import * as roomster from '../scraper/sources/roomster.js';
+import { postToListing, redditPhotos } from '../scraper/sources/reddit.js';
+import { parseItem } from '../scraper/sources/jsonld-sites.js';
+import { normalizeListing } from '../scraper/schema.js';
+import { dedupe, compare, photoKey } from '../scraper/dedupe.js';
+
+const juneLd = {
+  '@type': 'Apartment',
+  name: 'Full Bedroom B',
+  description: "This 67-square-foot room on New York City's Flatbush is a charming room in a 3-bedroom apartment.",
+  url: 'https://junehomes.com/residences/new-york-city-ny/flatbush/873-prospect-lefferts-gardens/2438',
+  image: 'https://storage.googleapis.com/junehomes/media/cache/79/9d/799d23f814da5c988af7b20ed7a59297.webp',
+  geo: { latitude: 40.6439, longitude: -73.95642 },
+  address: { streetAddress: '1 Sample Street' },
+  offers: { price: '1075', priceCurrency: 'USD' },
+};
+
+test('June Homes: index JSON-LD → structured price, explicit bedrooms, inferred roommates', () => {
+  const l = june.parseIndexItem(juneLd);
+  assert.equal(l.sourceId, '2438');
+  assert.deepEqual(l.price, { monthly: 1075, max: 1075, type: 'room_share', basis: 'structured' });
+  assert.deepEqual(l.bedrooms, { value: 3, basis: 'explicit' });
+  assert.deepEqual(l.roommates, { value: 2, basis: 'inferred' });
+  assert.equal(l.neighborhood.value, 'Flatbush');
+  assert.equal(l.borough.value, 'Brooklyn');
+  assert.equal(l.photos.length, 1);
+});
+
+test('June Homes: detail page adds gallery (room photos first), amenities, bedrooms, move-in', () => {
+  const l = june.parseIndexItem(juneLd);
+  const html = `<script type="application/ld+json">${JSON.stringify({ '@type': 'Apartment', amenityFeature: [{ name: 'Furnished' }, { name: 'Washer/Dryer in unit' }], petsAllowed: false })}</script>
+    <div>Overview Apartment ID 873 Bedrooms 3 Bath 1 Floor 4th</div><div>Available from 11/01/2026</div>
+    <img src="https://storage.googleapis.com/junehomes/media/roompicture/16824/aaaaaaaaaaaaaaaa.jpg">
+    <img src="https://storage.googleapis.com/junehomes/media/residencepicture/30604/bbbbbbbbbbbbbbbb.jpg">
+    <img src="https://storage.googleapis.com/junehomes/media/roompicture/16825/cccccccccccccccc.jpg">`;
+  const d = june.parseDetail(l, html);
+  assert.deepEqual(d.bedrooms, { value: 3, basis: 'structured' });
+  assert.deepEqual(d.roommates, { value: 2, basis: 'inferred' });
+  assert.deepEqual(d.furnished, { value: true, basis: 'structured' });
+  assert.equal(d.laundry.value, 'in_unit');
+  assert.equal(d.pets.value, 'No pets');
+  assert.equal(d.moveIn.value.date, '2026-11-01');
+  const urls = d.photos.map((p) => p.url);
+  assert.equal(urls[0], juneLd.image);
+  assert.ok(urls[1].includes('/roompicture/16824/'));
+  assert.ok(urls.some((u) => u.includes('/residencepicture/')));
+  assert.ok(!urls.some((u) => u.includes('/roompicture/16825/')), 'photos of other bedrooms are excluded');
+});
+
+test('Roomster: "Demand" items (people seeking rooms) are skipped; offered rooms parsed', () => {
+  const demand = { item: { '@type': 'Demand', url: 'https://roomster.com/listings/1', priceSpecification: { price: 1500 } } };
+  assert.equal(roomster.parseIndexItem(demand, 'room'), null);
+  const room = {
+    item: {
+      '@type': 'Room', name: 'Sunny room in Bushwick', url: 'https://roomster.com//listings/31875207',
+      description: 'Private room in a 3BR apartment near the L.', image: 'https://cdn-static.roomster.com/pics/Original/U-1-abcdef0123456789.jpg',
+      offers: { price: 1400, availabilityStarts: '2026-10-15' },
+    },
+  };
+  const l = roomster.parseIndexItem(room, 'room');
+  assert.equal(l.originalUrl, 'https://roomster.com/listings/31875207');
+  assert.deepEqual(l.price, { monthly: 1400, max: 1400, type: 'room_share', basis: 'structured' });
+  assert.equal(l.moveIn.value.date, '2026-10-15');
+  assert.equal(l.neighborhood.value, 'Bushwick');
+  assert.match(l.photos[0].thumb, /width=640/);
+});
+
+test('Roomster: whole-apartment price is total rent, never presented as your share', () => {
+  const apt = { item: { '@type': 'Apartment', name: '2BR apartment', url: 'https://roomster.com/listings/5', offers: { price: 3000 } } };
+  const l = roomster.parseIndexItem(apt, 'apartment');
+  assert.equal(l.price.monthly, null);
+  assert.equal(l.totalRent.value, 3000);
+});
+
+test('Reddit: seeking posts dropped; gallery photos extracted; price basis kept', () => {
+  const base = { id: 'x1', subreddit: 'RoommatesNYC', author: 'someone', permalink: '/r/RoommatesNYC/comments/x1/t/', created_utc: 1790000000 };
+  assert.equal(postToListing({ ...base, title: '25F looking for a room in Astoria', selftext: '', link_flair_text: 'Looking for Room' }), null);
+  const post = {
+    ...base,
+    title: 'Room in 3BR Bed-Stuy, your room is $1,350',
+    selftext: 'Living with 2 roommates. Laundry in building. Available Nov 1.',
+    link_flair_text: 'Room Available',
+    gallery_data: { items: [{ media_id: 'a' }, { media_id: 'b' }] },
+    media_metadata: {
+      a: { status: 'valid', s: { u: 'https://preview.redd.it/a.jpg?width=1080&amp;s=1' }, p: [{ x: 640, u: 'https://preview.redd.it/a.jpg?width=640&amp;s=2' }] },
+      b: { status: 'valid', s: { u: 'https://preview.redd.it/b.jpg?width=1080&amp;s=3' }, p: [] },
+    },
+  };
+  const l = postToListing(post);
+  assert.equal(l.price.monthly, 1350);
+  assert.equal(l.price.basis, 'explicit');
+  assert.deepEqual(l.roommates, { value: 2, basis: 'explicit' });
+  assert.equal(l.photos.length, 2);
+  assert.equal(l.photos[0].url, 'https://preview.redd.it/a.jpg?width=1080&s=1');
+  assert.equal(l.photos[0].thumb, 'https://preview.redd.it/a.jpg?width=640&s=2');
+  assert.deepEqual(redditPhotos({ url: 'https://example.com/not-an-image' }), []);
+});
+
+test('Diggz/Roomies JSON-LD: NJ listings skipped, bogus 1965 availability ignored', () => {
+  const nj = { item: { '@type': 'Product', name: 'Room for Rent in Jersey City', url: 'https://www.diggz.co/users/us_1', offers: { price: '850' }, areaServed: { name: 'Jersey City', address: { addressRegion: 'NJ' } } } };
+  assert.equal(parseItem('diggz', nj), null);
+  const r = { item: { '@type': 'RealEstateListing', name: 'Furnished room in an apartment | Brooklyn, New York 11208 | Clean and quiet', url: 'https://www.roomies.com/rooms/839923', image: 'https://cloudinary.roomies.pics/x.jpg', datePosted: '2026-09-01T00:00:00+00:00', offers: { price: 1350, availabilityStarts: '1965-11-01T00:00:00+00:00' }, about: { numberOfBedrooms: 2, numberOfBathroomsTotal: 1, petsAllowed: false, latitude: 40.67, longitude: -73.88 } } };
+  const l = parseItem('roomies', r);
+  assert.equal(l.price.monthly, 1350);
+  assert.deepEqual(l.bedrooms, { value: 2, basis: 'structured' });
+  assert.equal(l.moveIn.value, null);
+  assert.equal(l.borough.value, 'Brooklyn');
+});
+
+test('normalizeListing fills every field with value/basis and sets photo status', () => {
+  const n = normalizeListing({ source: 'x', sourceId: 1, sourceLabel: 'X', originalUrl: 'https://x.test/1', title: ' T ', photos: [{ url: 'http://insecure/a.jpg' }] });
+  assert.equal(n.id, 'x:1');
+  assert.equal(n.dataKind, 'REAL');
+  assert.deepEqual(n.bedrooms, { value: null, basis: null });
+  assert.equal(n.price.type, 'unknown');
+  assert.equal(n.photos.length, 0, 'non-https photos are dropped');
+  assert.equal(n.photoStatus, 'none');
+});
+
+test('dedupe: shared photo merges across sources and combines photos; unrelated stay apart', () => {
+  const mk = (source, id, extra) => normalizeListing({ source, sourceId: id, sourceLabel: source, originalUrl: `https://${source}.test/${id}`, title: 'Room', ...extra });
+  const a = mk('reddit', 1, { title: 'Sunny room Bed-Stuy', photos: [{ url: 'https://i.redd.it/abcdefgh1234.jpg' }], price: { monthly: 1400 } });
+  const b = mk('roomster', 2, { title: 'Room available', photos: [{ url: 'https://cdn.test/pics/abcdefgh1234.large.jpg' }, { url: 'https://cdn.test/pics/zzzzzzzz9999.jpg' }] });
+  const c = mk('junehomes', 3, { title: 'Totally different', price: { monthly: 1100 } });
+  assert.equal(photoKey('https://cdn.test/pics/abcdefgh1234.large.jpg'), 'abcdefgh1234');
+  assert.equal(compare(a, b).reason, 'shared photo');
+  const out = dedupe([a, b, c]);
+  assert.equal(out.length, 2);
+  const merged = out.find((l) => l.sources.length === 2);
+  assert.deepEqual(merged.sources.map((s) => s.source).sort(), ['reddit', 'roomster']);
+  assert.equal(merged.photos.length, 2);
+});
+
+test('dedupe: near-identical text + same price + same neighborhood merges; photos not combined on weak match', () => {
+  const text = 'Private room in a 3 bedroom apartment in Bushwick near the Jefferson L train, living with two friendly roommates, laundry in building, available November first';
+  const mk = (source, id, photo) => normalizeListing({
+    source, sourceId: id, sourceLabel: source, originalUrl: `https://${source}.test/${id}`, title: 'Room', description: text,
+    price: { monthly: 1450 }, neighborhood: { value: 'Bushwick', basis: 'explicit' }, photos: [{ url: `https://img.test/${photo}.jpg` }],
+  });
+  const out = dedupe([mk('reddit', 1, 'photoaaaaaaaa'), mk('manual', 2, 'photobbbbbbbb')]);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].sources.length, 2);
+  assert.equal(out[0].photos.length, 1, 'text-only match does not merge photos');
+});

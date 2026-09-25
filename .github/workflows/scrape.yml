@@ -1,53 +1,71 @@
-name: Scrape listings and publish site
+name: Scrape listings
 
-# Schedule disabled until each source is verified against live data.
+# Manual only for now (schedule is enabled once hosting is decided).
+#
+# mode=verify: run the real scrapers, then (optionally) render the site with
+#   the real data and screenshot it. Results are ENCRYPTED with
+#   .github/verify-pubkey.pem and pushed to the `verify-output` branch, so
+#   nothing readable (listing text, photos) lands in this public repo or its
+#   logs. Logs show counts and statuses only.
 on:
   workflow_dispatch:
+    inputs:
+      mode:
+        description: 'verify'
+        required: true
+        default: verify
+      screenshots:
+        description: 'Render the site and screenshot it (true/false)'
+        required: false
+        default: 'false'
 
 permissions:
   contents: write
-  pages: write
-  id-token: write
 
 concurrency:
-  group: scrape-and-deploy
+  group: scrape
   cancel-in-progress: false
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - run: npm test
-      - name: Scrape
-        run: npm run scrape
+      - name: Scrape live sources
+        run: node scraper/index.js
         env:
           REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
           REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
+          ENABLE_SOURCES: ${{ vars.ENABLE_SOURCES }}
           MAX_SHARE: ${{ vars.MAX_SHARE }}
-          SUBREDDITS: ${{ vars.SUBREDDITS }}
-      - name: Commit updated listings
+      - name: Screenshot the site with real data
+        if: inputs.screenshots == 'true'
         run: |
+          npm install --no-save playwright@1.56.1 >/dev/null
+          npx playwright install --with-deps chromium >/dev/null
+          (PORT=3000 node server.js &) && sleep 2
+          node scripts/screenshot.js
+      - name: Encrypt results and push to verify-output
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          cp public/data/listings.json public/data/status.json out/
+          [ -d shots ] && cp -r shots out/ || true
+          tar czf results.tgz -C out .
+          openssl rand -out key.bin 32
+          openssl enc -aes-256-cbc -pbkdf2 -salt -in results.tgz -out results.tgz.enc -pass file:key.bin
+          openssl pkeyutl -encrypt -pubin -inkey .github/verify-pubkey.pem -in key.bin -out key.bin.enc
+          rm key.bin results.tgz
           git config user.name "apartment-hunter-bot"
           git config user.email "apartment-hunter-bot@users.noreply.github.com"
-          git add public/data/listings.json
-          if ! git diff --cached --quiet; then
-            git commit -m "Update listings"
-            git push
-          fi
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: public
-
-  deploy:
-    needs: scrape
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
-      - id: deployment
-        uses: actions/deploy-pages@v4
+          git checkout --orphan verify-output
+          git rm -rq --cached .
+          git add -f results.tgz.enc key.bin.enc
+          git commit -qm "Encrypted verification output ($(date -u +%FT%TZ))"
+          git push -qf origin verify-output
+          echo "pushed encrypted results ($(stat -c%s results.tgz.enc) bytes)"
