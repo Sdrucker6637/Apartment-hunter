@@ -106,4 +106,59 @@ export const SOURCES = [
     paths: ['/new-york-rentals', '/'],
     terms: ['https://www.sublet.com/terms', 'https://www.sublet.com/terms-of-use'],
   },
+  {
+    id: 'nooklyn', name: 'Nooklyn (NYC rooms/apartments)', origin: 'https://nooklyn.com',
+    paths: ['/rooms', '/rentals', '/'],
+    terms: ['https://nooklyn.com/terms', 'https://nooklyn.com/terms-of-service', 'https://nooklyn.com/terms-of-use'],
+  },
+  {
+    id: 'habyt', name: 'Habyt (co-living)', origin: 'https://www.habyt.com',
+    paths: ['/new-york', '/en/new-york', '/'],
+    terms: ['https://www.habyt.com/terms', 'https://www.habyt.com/terms-and-conditions', 'https://www.habyt.com/en/terms'],
+  },
+  {
+    id: 'bedly', name: 'Bedly (NYC rooms)', origin: 'https://bedly.com',
+    paths: ['/rooms', '/new-york', '/'],
+    terms: ['https://bedly.com/terms', 'https://bedly.com/terms-of-service', 'https://bedly.com/terms-of-use'],
+  },
+  {
+    id: 'colivingcom', name: 'Coliving.com', origin: 'https://coliving.com',
+    paths: ['/new-york', '/new-york-city', '/'],
+    terms: ['https://coliving.com/terms', 'https://coliving.com/terms-of-service', 'https://coliving.com/terms-and-conditions'],
+  },
+  {
+    id: 'housinganywhere', name: 'HousingAnywhere', origin: 'https://housinganywhere.com',
+    paths: ['/s/New-York--United-States', '/'],
+    terms: ['https://housinganywhere.com/terms', 'https://housinganywhere.com/terms-of-use', 'https://housinganywhere.com/terms-and-conditions'],
+  },
+  {
+    id: 'tripalink', name: 'Tripalink (co-living)', origin: 'https://www.tripalink.com',
+    paths: ['/new-york', '/'],
+    terms: ['https://www.tripalink.com/terms', 'https://www.tripalink.com/terms-of-service', 'https://www.tripalink.com/terms-of-use'],
+  },
+  {
+    id: 'roommatescom', name: 'Roommates.com', origin: 'https://www.roommates.com',
+    paths: ['/rooms/new-york', '/'],
+    terms: ['https://www.roommates.com/terms', 'https://www.roommates.com/terms-of-use', 'https://www.roommates.com/terms-of-service'],
+  },
+  {
+    id: 'roomiematch', name: 'RoomieMatch', origin: 'https://www.roomiematch.com',
+    paths: ['/'],
+    terms: ['https://www.roomiematch.com/terms.php', 'https://www.roomiematch.com/terms', 'https://www.roomiematch.com/tos.php'],
+  },
+  {
+    id: 'kopa', name: 'Kopa', origin: 'https://www.kopa.co',
+    paths: ['/new-york-ny', '/'],
+    terms: ['https://www.kopa.co/terms', 'https://www.kopa.co/terms-of-service', 'https://www.kopa.co/terms-of-use'],
+  },
+  {
+    id: 'furnishedfinder', name: 'Furnished Finder', origin: 'https://www.furnishedfinder.com',
+    paths: ['/housing/New-York/New-York', '/'],
+    terms: ['https://www.furnishedfinder.com/terms', 'https://www.furnishedfinder.com/terms-of-use', 'https://www.furnishedfinder.com/terms-of-service'],
+  },
+  {
+    id: 'padsplit', name: 'PadSplit', origin: 'https://www.padsplit.com',
+    paths: ['/rooms-for-rent/new-york', '/'],
+    terms: ['https://www.padsplit.com/terms', 'https://www.padsplit.com/terms-of-use', 'https://www.padsplit.com/terms-of-service'],
+  },
 ];
