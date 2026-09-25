@@ -57,6 +57,13 @@ export const TARGETS = {
     ],
     listingLink: /\/(?:groups\/[^/"']+\/(?:posts|permalink)\/\d+|marketplace\/item\/\d+)/g,
   },
+  redditterms: {
+    name: 'Reddit (terms + API docs)',
+    robots: [],
+    terms: ['https://redditinc.com/policies/user-agreement', 'https://redditinc.com/policies/data-api-terms', 'https://www.reddit.com/wiki/api'],
+    pages: [],
+    listingLink: /$^/g,
+  },
   roomi2: {
     name: 'Roomi (follow-up)',
     robots: ['https://roomiapp.com'],

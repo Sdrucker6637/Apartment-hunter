@@ -9,7 +9,7 @@ import * as roomster from '../scraper/sources/roomster.js';
 import { postToListing, redditPhotos } from '../scraper/sources/reddit.js';
 import { parseItem } from '../scraper/sources/jsonld-sites.js';
 import { normalizeListing } from '../scraper/schema.js';
-import { dedupe, compare, photoKey } from '../scraper/dedupe.js';
+import { dedupe, compare, photoKey, normalizeAddress } from '../scraper/dedupe.js';
 
 const juneLd = {
   '@type': 'Apartment',
@@ -171,7 +171,7 @@ test('dedupe: near-identical text + same price + same neighborhood merges; photo
     source, sourceId: id, sourceLabel: source, originalUrl: `https://${source}.test/${id}`, title: 'Room', description: text,
     price: { monthly: 1450 }, neighborhood: { value: 'Bushwick', basis: 'explicit' }, photos: [{ url: `https://img.test/${photo}.jpg` }],
   });
-  const out = dedupe([mk('reddit', 1, 'photoaaaaaaaa'), mk('manual', 2, 'photobbbbbbbb')]);
+  const out = dedupe([mk('reddit', 1, 'photoaaaaaaaa'), mk('roomi', 2, 'photobbbbbbbb')]);
   assert.equal(out.length, 1);
   assert.equal(out[0].sources.length, 2);
   assert.equal(out[0].photos.length, 1, 'text-only match does not merge photos');
@@ -206,4 +206,49 @@ test('Roomster: implausible monthly amounts (e.g. $175 nightly) become unknown',
   const l = roomster.parseIndexItem({ item: { '@type': 'Apartment', name: 'Apt', url: 'https://roomster.com/listings/3', offers: { price: 175 } } }, 'apartment');
   assert.equal(l.totalRent.value, null);
   assert.equal(l.price, undefined);
+});
+
+test('cross-source dedupe: generic facts never merge; specific evidence does; conflicts veto', () => {
+  const mk = (source, id, extra = {}) => normalizeListing({
+    source, sourceId: id, sourceLabel: source, originalUrl: `https://${source}.test/${id}`, title: 'Room for rent',
+    price: { monthly: 1300 }, bedrooms: { value: 3, basis: 'explicit' }, neighborhood: { value: 'Bushwick', basis: 'explicit' },
+    moveIn: { value: { date: '2026-11-01', text: 'Nov 1' }, basis: 'explicit' }, ...extra,
+  });
+  // Same price, bedrooms, neighborhood and move-in, different posts: stay apart.
+  const a = mk('reddit', 1, { description: 'Quiet room facing the courtyard, looking for a tidy grad student' });
+  const b = mk('roomster', 2, { description: 'Huge sunny bedroom, skylight, rooftop access, pets welcome' });
+  assert.equal(compare(a, b).same, false, 'price + beds + neighborhood + move-in alone do not merge');
+  assert.equal(dedupe([a, b]).length, 2);
+
+  // Same street address (different unit formatting) + matching facts: merge, keep both URLs.
+  const c = mk('junehomes', 3, { address: '123 West 45th Street, Apt 4B' });
+  const d = mk('roomster', 4, { address: '123 W 45th St #2' });
+  const r = compare(c, d);
+  assert.equal(r.same, true, r.reason);
+  const out = dedupe([c, d]);
+  assert.equal(out.length, 1);
+  assert.equal(out[0].sourceCount, 2);
+  assert.deepEqual(out[0].sources.map((s) => s.url).sort(), ['https://junehomes.test/3', 'https://roomster.test/4']);
+
+  // Map pins 50 m apart + description overlap: merge.
+  const text = 'Private room in a renovated 3 bedroom near the Jefferson L, laundry in building, furnished common areas';
+  const e = mk('junehomes', 5, { description: text, location: { lat: 40.7066, lng: -73.9229 } });
+  const f = mk('roomster', 6, { description: `${text}. Speak to a representative`, location: { lat: 40.7070, lng: -73.9230 } });
+  assert.equal(compare(e, f).same, true);
+
+  // Identical text but bedrooms differ: veto.
+  const g = mk('reddit', 7, { description: text, bedrooms: { value: 2, basis: 'explicit' } });
+  const h = mk('roomster', 8, { description: text });
+  assert.equal(compare(g, h).same, false);
+  assert.deepEqual(compare(g, h).vetoes, ['bedrooms differ']);
+  // Room vs entire apartment: veto.
+  const i = mk('reddit', 9, { description: text, listingType: { value: 'ENTIRE_APARTMENT', basis: 'explicit' } });
+  const j = mk('roomster', 10, { description: text, listingType: { value: 'ROOM_IN_SHARED_APARTMENT', basis: 'structured' } });
+  assert.equal(compare(i, j).same, false);
+});
+
+test('normalizeAddress ignores unit numbers and street-type spelling; needs a house number', () => {
+  assert.equal(normalizeAddress('123 West 45th Street, Apt 4B'), '123 w 45 st');
+  assert.equal(normalizeAddress('123 W. 45th St #2'), '123 w 45 st');
+  assert.equal(normalizeAddress('Bushwick, Brooklyn'), null);
 });

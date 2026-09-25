@@ -30,7 +30,7 @@ const state = {
   f: { ...structuredClone(DEFAULTS), ...(stored.f || {}) },
   saved: new Set(stored.saved || []),
   hidden: new Set(stored.hidden || []),
-  listings: [], status: null, dataKind: 'REAL', maxShare: 1700, isLocal: false,
+  listings: [], status: null, dataKind: 'REAL', maxShare: 1700,
 };
 function persist() {
   try { localStorage.setItem(STORE, JSON.stringify({ f: state.f, saved: [...state.saved], hidden: [...state.hidden] })); } catch { /* storage unavailable */ }
@@ -300,7 +300,7 @@ function summaryText(results) {
   else if (f.toggles.includes('laundry:building')) crit.push('laundry in building');
   if (f.toggles.includes('furnished')) crit.push('furnished');
   if (crit.length) parts.push(`· ${esc(crit.join(', '))}`);
-  const srcNames = [...new Set(results.flatMap((l) => l.sources.map((s) => (sourceMeta(s.source) ? sourceName(s.source) : s.label.replace(/ \(added manually\)$/, ' (added by you)')))))];
+  const srcNames = [...new Set(results.flatMap((l) => l.sources.map((s) => (sourceMeta(s.source) ? sourceName(s.source) : s.label))))];
   const joinAnd = (xs) => (xs.length < 2 ? xs.join('') : `${xs.slice(0, -1).join(', ')} and ${xs.at(-1)}`);
   const byType = {};
   for (const l of results) byType[l.listingType.value] = (byType[l.listingType.value] || 0) + 1;
@@ -362,7 +362,7 @@ function renderBoros() {
 function renderSources() {
   const st = state.status?.sources || [];
   const selected = state.f.sources;
-  const rows = st.filter((s) => s.id !== 'manual' || s.inDataset).map((s) => {
+  const rows = st.map((s) => {
     const live = (s.inDataset || 0) > 0;
     const on = live && (!selected || selected.includes(s.id));
     const note = live ? `${s.inDataset}` : ({ AUTH_REQUIRED: 'not connected', UNVERIFIED: 'off — terms unverified', SOURCE_BLOCKED: 'blocked', NO_PUBLIC_ACCESS: 'not permitted' }[s.status] || 'no listings');
@@ -637,41 +637,6 @@ function renderStatus() {
     <div class="src-list">${(st.excluded || []).map(ex).join('')}</div>`;
 }
 
-// ---------- local-only: add a pasted post ----------
-function addPostDialog() {
-  let dlg = $('#add-dialog');
-  if (!dlg) {
-    document.body.insertAdjacentHTML('beforeend', `<dialog class="sheet" id="add-dialog" aria-labelledby="add-title">
-      <form method="dialog" id="add-form" style="display:contents">
-        <div class="sheet-head"><h2 id="add-title">Add a post</h2><button type="button" class="icon-close" data-close aria-label="Close">×</button></div>
-        <div class="sheet-body">
-          <p class="muted" style="margin:0">For Facebook groups and other places we can't search automatically. Paste the link and the post text.</p>
-          <label class="field"><span class="field-label">Link to the post</span><input type="url" name="url" class="input" placeholder="https://www.facebook.com/groups/…"></label>
-          <label class="field"><span class="field-label">Post text</span><textarea name="text" rows="7" required class="input"></textarea></label>
-          <p id="add-error" class="form-error" hidden></p>
-        </div>
-        <div class="sheet-foot"><button type="button" class="btn ghost" data-close>Cancel</button><button class="btn primary" value="save">Add post</button></div>
-      </form></dialog>`);
-    dlg = $('#add-dialog');
-    $('#add-form').addEventListener('submit', async (e) => {
-      e.preventDefault();
-      const fd = new FormData(e.target);
-      try {
-        const res = await fetch('/api/manual', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: fd.get('url'), text: fd.get('text') }) });
-        const json = await res.json();
-        if (!res.ok) throw new Error(json.error || res.statusText);
-        dlg.close();
-        await loadData();
-      } catch (err) {
-        $('#add-error').textContent = err.message;
-        $('#add-error').hidden = false;
-      }
-    });
-  }
-  $('#add-form').reset();
-  dlg.showModal();
-}
-
 // ---------- events ----------
 const toggleIn = (list, v) => (list.includes(v) ? list.filter((x) => x !== v) : [...list, v]);
 function update(patch) { Object.assign(state.f, patch); syncControls(); render(); }
@@ -803,17 +768,5 @@ async function loadData() {
   routeFromHash();
 }
 
-async function detectLocal() {
-  try {
-    const res = await fetch('/api/health');
-    state.isLocal = res.ok && (await res.json()).local === true;
-  } catch { state.isLocal = false; }
-  if (state.isLocal) {
-    $('.results-tools').insertAdjacentHTML('afterbegin', '<button type="button" class="pill-toggle" id="add-post">+ Add a post</button>');
-    $('#add-post').addEventListener('click', addPostDialog);
-  }
-}
-
 bind();
-await detectLocal();
 await loadData();
