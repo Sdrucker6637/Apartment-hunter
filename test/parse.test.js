@@ -182,3 +182,10 @@ test('enumerated housemates are counted; "only you and I" is one', () => {
 test('seeker posts in apartment categories are flagged', () => {
   assert.equal(extractText({ title: 'Ivey', text: 'Me and my husband are looking for a 1 bedroom apartment.' }).seeking, true);
 });
+
+// Misses found by the 2026-09-25 held-out evaluation (fixed after scoring).
+test('held-out misses: laundry in home, remainder lease, possessive neighborhood', () => {
+  assert.equal(extractText({ title: '1 BR', text: 'Amenities of this home: Dishwasher, Laundry in home (free), Elevator' }).laundry, 'in_unit');
+  assert.equal(extractText({ title: 'Studio', text: 'Lease details: Remainder lease duration Sep 7 - Nov 7 (with option to renew directly with the building)' }).listingType, 'LEASE_TAKEOVER');
+  assert.equal(findNeighborhood('on one of Astoria’s most gorgeous blocks').neighborhood, 'Astoria');
+});

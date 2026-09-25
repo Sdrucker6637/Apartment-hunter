@@ -149,7 +149,7 @@ export function findRoommates(text) {
 // ---------- listing type ----------
 // Only from explicit wording; UNKNOWN otherwise.
 const TYPE_RULES = [
-  ['LEASE_TAKEOVER', /\blease\s+(?:take[- ]?over|transfer|assignment|break)\b|\btak(?:e|ing)\s+over\s+(?:my|our|the)\s+lease\b/i],
+  ['LEASE_TAKEOVER', /\blease\s+(?:take[- ]?over|transfer|assignment|break)\b|\btak(?:e|ing)\s+over\s+(?:my|our|the)\s+lease\b|\bremainder\s+(?:of\s+(?:my|our|the)\s+)?lease\b/i],
   ['SUBLET', /\bsub-?let(?:ting)?\b|\bsub-?leas(?:e|ing)\b|\bshort[- ]term\s+(?:rental|stay|sublet|room|housing)\b/i],
   ['ROOM_IN_SHARED_APARTMENT', /\b(?:private|spare|furnished|master|sunny|big|large|cozy|small)?\s*(?:bed)?room\s+(?:for\s+rent|available|open|in\s+(?:a|an|my|our|the)\b|in\s+(?:a\s+)?(?:\d|two|three|four|five)\s*-?\s*(?:br|bd|bed(?:room)?)s?\b)|\b(?:\d|one|two|three|four)\s+(?:private\s+)?(?:bed)?rooms?\s+(?!(?:[\w-]+\s+){0,2}(?:apartment|apt|unit|flat|house|home)\b)(?:[\w-]+\s+){0,4}(?:available|open(?:ing)?(?:\s+up)?|for\s+rent)\b|\broom(?:mate|ie)s?\s+(?:wanted|needed)\b|\blooking\s+for\s+(?:an?\s+|\w+\s+)?(?:roommate|roomie|housemate)|\bshared\s+(?:apartment|apt|house|home)\b|\broom\s*share\b|\bto\s+fill\s+(?:(?:the|our|a|my)\s+)?(?:\w+\s+)?(?:bed)?room\b|\bprivate\s+(?:bed)?room\b|\bspare\s+(?:bed)?room\b|\bsecond\s+bedroom\b|\b(?:this|the)\s+room\s+(?:is|can\s+be)\b|\broom\s+is\s+available\b|\bshared\s+common\s+(?:areas?|spaces?)\b|^\W*(?:big\s+|large\s+|sunny\s+|cozy\s+)?(?:bed)?room\s+with\b/im],
   ['ENTIRE_APARTMENT', /\b(?:entire|whole)\s+(?:apartment|apt|unit|place|home|house|floor)\b|\b(?:vacant|empty)\s+(?:apartment|apt|unit)\b|\b(?:apartment|apt|studio|house|\d\s?br|\d[- ]bed(?:room)?(?:\s+apartment)?)\s+for\s+rent\b|\b(?:\d|one|two|three|four)[- ]?(?:bed(?:room)?|br)s?\s*(?:[/,]\s*(?:\d|one|two)[- ]?(?:full\s+)?bath(?:room)?s?\s*)?(?:w\/\s*\w+\s+)?(?:apartment|apt|flat|unit|residences?)\b|\bapartment\s+(?:is\s+)?(?:available|for\s+rent)\b|\bstudio\s+(?:in|apartment|apt|with|offers|lease)\b|^\W*studio\b|\b\d\s?BR\s+in\b|\b(?:my|the|this)\s+flat\b|\blisting\s+a\s+(?:vacant\s+)?(?:apartment|apt|place)\b/im],
@@ -165,7 +165,7 @@ export function findListingType(text) {
 export function findLaundry(text) {
   if (!text) return null;
   const t = text.toLowerCase();
-  const inUnit = /(w\/d|w\s?&\s?d|washer\s*(?:\/|&|and|-)?\s*dryer|washer-dryer|laundry)\s*(?:is\s+)?(?:in[- ]?unit|in the (?:unit|apartment|apt)|in apt|in-apartment)|in[- ]?unit\s*(?:w\/d|w\s?&\s?d|washer|laundry)|\bwdiu\b|\bw\/d\s*iu\b|washer (?:and|&) dryer in (?:the )?(?:unit|apartment|apt)/;
+  const inUnit = /(w\/d|w\s?&\s?d|washer\s*(?:\/|&|and|-)?\s*dryer|washer-dryer|laundry)\s*(?:is\s+)?(?:in[- ]?unit|in the (?:unit|apartment|apt)|in apt|in-apartment|in (?:the )?home\b)|in[- ]?unit\s*(?:w\/d|w\s?&\s?d|washer|laundry)|\bwdiu\b|\bw\/d\s*iu\b|washer (?:and|&) dryer in (?:the )?(?:unit|apartment|apt)/;
   const inBuilding = /(w\/d|w\s?&\s?d|washer\s*(?:\/|&|and|-)?\s*dryer|laundry)\s*(?:room\s*)?(?:is\s+)?(?:available\s+)?(?:in[- ]?(?:the\s+)?(?:building|bldg)|on[- ]site|in basement|in the basement|on (?:each|every) floor)|(?:building|bldg|on[- ]site|basement)\s+(?:has\s+(?:a\s+)?)?laundry|laundry\s+room|shared laundry|common laundry/;
   const none = /no (?:w\/d|washer|laundry)|laundromat (?:nearby|next door|around the corner|down the (?:street|block))/;
   if (inUnit.test(t)) return 'in-unit';

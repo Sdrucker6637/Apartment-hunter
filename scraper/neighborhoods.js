@@ -134,7 +134,7 @@ function buildMatchers(entries) {
           ? alias[0].toUpperCase() + alias.slice(1)
           : alias.toUpperCase())
         : alias;
-      const re = new RegExp(`(?<![\\w'’])${escapeRe(pattern).replace(/\\?[-\s]/g, '[-\\s]?')}(?![\\w'’])`, caseSensitive ? '' : 'i');
+      const re = new RegExp(`(?<![\\w'’])${escapeRe(pattern).replace(/\\?[-\s]/g, '[-\\s]?')}(?!\\w|['’](?!s\\b))`, caseSensitive ? '' : 'i');
       out.push({ entry, alias, re });
     }
   }
