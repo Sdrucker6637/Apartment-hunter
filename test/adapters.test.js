@@ -185,7 +185,7 @@ test('Roomster detail: location line, clean description, no invented roommates o
   const d = roomster.parseDetail(base, roomsterDetail('Astoria, Queens, NY', 'Room for rent in Woodside, Queens. I live here with my family of 3. Laundry in the building.'));
   assert.equal(d.description.startsWith('Room for rent in Woodside'), true, 'page chrome not included');
   assert.equal(d.neighborhood.value, 'Astoria');
-  assert.deepEqual(d.borough, { value: 'Queens', basis: 'inferred' });
+  assert.deepEqual(d.borough, { value: 'Queens', basis: 'calculated' });
   assert.deepEqual(d.furnished, { value: false, basis: 'structured' });
   assert.equal(d.bedrooms?.value ?? null, null, '"bedroom for rent" is not a 1BR apartment');
   assert.equal(d.locationLine, 'Astoria, Queens, NY');

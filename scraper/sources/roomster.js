@@ -60,7 +60,7 @@ export function parseIndexItem(listItem, kind) {
     listingType: field(kind === 'room' ? 'ROOM_IN_SHARED_APARTMENT' : 'ENTIRE_APARTMENT', 'structured'),
     moveIn: field(avail ? { date: String(avail).slice(0, 10), text: String(avail).slice(0, 10) } : null, 'structured'),
     neighborhood: field(hood.neighborhood, hood.neighborhood ? 'explicit' : null),
-    borough: field(hood.borough, hood.borough ? 'inferred' : null),
+    borough: field(hood.borough, hood.borough ? 'calculated' : null),
     contactUrl: `${ORIGIN}/listings/${id}`,
     contactMethod: 'Roomster message (account required)',
     photos,
@@ -134,7 +134,7 @@ export function parseDetail(listing, html) {
     const hood = findNeighborhood(loc[1]);
     if (loc[2] === 'NJ' && !hood.borough) hood.borough = 'New Jersey';
     if (!out.neighborhood?.value && hood.neighborhood) out.neighborhood = field(hood.neighborhood, 'structured');
-    if (hood.borough) out.borough = field(hood.borough, hood.neighborhood ? 'inferred' : 'structured');
+    if (hood.borough) out.borough = field(hood.borough, hood.neighborhood ? 'calculated' : 'structured');
   }
 
   const desc = /, USA\s+Description\s+([\s\S]{15,4000}?)\s+(?:Additional information|Residence Building Type|Lifestyle|Show all photos|Report|$)/.exec(text)?.[1];

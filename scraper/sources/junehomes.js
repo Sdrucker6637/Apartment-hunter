@@ -71,7 +71,7 @@ export function parseIndexItem(ld) {
     listingType: field('ROOM_IN_SHARED_APARTMENT', 'structured'),
     roomType: field('private', 'structured'),
     neighborhood: field(hood.neighborhood, hood.neighborhood ? 'structured' : null),
-    borough: field(hood.borough, hood.borough ? 'inferred' : null),
+    borough: field(hood.borough, hood.borough ? 'calculated' : null),
     location: ld.geo?.latitude ? { lat: ld.geo.latitude, lng: ld.geo.longitude, precision: 'building' } : null,
     address: ld.address?.streetAddress || null,
     contactUrl: url,
