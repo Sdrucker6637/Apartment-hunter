@@ -1,0 +1,57 @@
+name: Scrape listings and publish site
+
+on:
+  schedule:
+    - cron: '17 */3 * * *' # every 3 hours
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['public/**', 'scraper/**', 'data/**']
+
+permissions:
+  contents: write
+  pages: write
+  id-token: write
+
+concurrency:
+  group: scrape-and-deploy
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test
+      - name: Scrape
+        run: npm run scrape
+        env:
+          REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
+          REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
+          MAX_SHARE: ${{ vars.MAX_SHARE }}
+          SUBREDDITS: ${{ vars.SUBREDDITS }}
+      - name: Commit updated listings
+        run: |
+          git config user.name "apartment-hunter-bot"
+          git config user.email "apartment-hunter-bot@users.noreply.github.com"
+          git add public/data/listings.json
+          if ! git diff --cached --quiet; then
+            git commit -m "Update listings"
+            git push
+          fi
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: public
+
+  deploy:
+    needs: scrape
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
