@@ -27,7 +27,7 @@ jobs:
           node-version: 22
       - name: Run probe
         run: |
-          case "$STAGE" in rules|listings|inspect) ;; *) echo "unknown stage: $STAGE"; exit 1;; esac
+          case "$STAGE" in rules|listings|inspect|discover) ;; *) echo "unknown stage: $STAGE"; exit 1;; esac
           node "probe/$STAGE.js"
         env:
           STAGE: ${{ inputs.stage }}
