@@ -48,8 +48,20 @@ export function textSimilarity(a, b) {
 const contacts = (l) => new Set([...(l.contactEmails || []), ...(l.contactPhones || [])].map((c) => c.toLowerCase()));
 
 // Returns { same: boolean, reason } for two normalized listings.
+// Sources whose listing IDs are already unique units (no reposting).
+const UNIQUE_ID_SOURCES = new Set(['junehomes']);
+
 export function compare(a, b) {
   if (a.id === b.id) return { same: true, reason: 'same source id' };
+  if (a.source === b.source) {
+    // Within one source, only merge reposts: near-identical text at the same price.
+    if (UNIQUE_ID_SOURCES.has(a.source)) return { same: false, reason: null };
+    const sim = textSimilarity(`${a.title} ${a.description}`, `${b.title} ${b.description}`);
+    const priceA = a.price.monthly ?? a.totalRent.value;
+    const priceB = b.price.monthly ?? b.totalRent.value;
+    if (sim >= 0.95 && priceA === priceB) return { same: true, reason: `repost (text ${sim.toFixed(2)}, same price)` };
+    return { same: false, reason: null };
+  }
   const ua = canonicalUrl(a.originalUrl);
   if (ua && ua === canonicalUrl(b.originalUrl)) return { same: true, reason: 'same URL' };
   const pa = new Set(a.photos.map((p) => photoKey(p.url)).filter(Boolean));
@@ -94,7 +106,7 @@ export function dedupe(listings) {
         if (!merged.sources.some((x) => x.url === s.url)) merged.sources.push(s);
       }
       merged.duplicateReasons.push({ id: listing.id, reason });
-      const strong = /same source id|same URL|shared photo/.test(reason);
+      const strong = /same source id|same URL|shared photo|repost/.test(reason);
       if (strong) {
         for (const p of listing.photos) {
           const k = photoKey(p.url) || p.url;

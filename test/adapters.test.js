@@ -33,25 +33,31 @@ test('June Homes: index JSON-LD → structured price, explicit bedrooms, inferre
   assert.equal(l.photos.length, 1);
 });
 
-test('June Homes: detail page adds gallery (room photos first), amenities, bedrooms, move-in', () => {
+test('June Homes: detail page → this room\'s photo + shared-space photos only; amenities and bedrooms', () => {
   const l = june.parseIndexItem(juneLd);
-  const html = `<script type="application/ld+json">${JSON.stringify({ '@type': 'Apartment', amenityFeature: [{ name: 'Furnished' }, { name: 'Washer/Dryer in unit' }], petsAllowed: false })}</script>
-    <div>Overview Apartment ID 873 Bedrooms 3 Bath 1 Floor 4th</div><div>Available from 11/01/2026</div>
+  const html = `<script type="application/ld+json">${JSON.stringify({ '@type': 'Apartment', amenityFeature: [{ name: 'Furnished' }, { name: 'Washer/Dryer in unit' }], petsAllowed: false, accommodationFloorPlan: { layoutImage: 'https://storage.googleapis.com/junehomes/media/residencepicture/30604/ffffffffffffffff.jpg' } })}</script>
+    <div>Overview Apartment ID 873 Bedrooms 3 Bath 1 Floor 4th</div>
     <img src="https://storage.googleapis.com/junehomes/media/roompicture/16824/aaaaaaaaaaaaaaaa.jpg">
     <img src="https://storage.googleapis.com/junehomes/media/residencepicture/30604/bbbbbbbbbbbbbbbb.jpg">
-    <img src="https://storage.googleapis.com/junehomes/media/roompicture/16825/cccccccccccccccc.jpg">`;
+    <img src="https://storage.googleapis.com/junehomes/media/residencepicture/30604/ffffffffffffffff.jpg">`;
   const d = june.parseDetail(l, html);
   assert.deepEqual(d.bedrooms, { value: 3, basis: 'structured' });
   assert.deepEqual(d.roommates, { value: 2, basis: 'inferred' });
   assert.deepEqual(d.furnished, { value: true, basis: 'structured' });
   assert.equal(d.laundry.value, 'in_unit');
   assert.equal(d.pets.value, 'No pets');
-  assert.equal(d.moveIn.value.date, '2026-11-01');
-  const urls = d.photos.map((p) => p.url);
-  assert.equal(urls[0], juneLd.image);
-  assert.ok(urls[1].includes('/roompicture/16824/'));
-  assert.ok(urls.some((u) => u.includes('/residencepicture/')));
-  assert.ok(!urls.some((u) => u.includes('/roompicture/16825/')), 'photos of other bedrooms are excluded');
+  assert.deepEqual(d.photos.map((p) => p.caption), ['This room', 'Shared space in this apartment']);
+  assert.equal(d.photos[0].url, juneLd.image);
+  assert.ok(!d.photos.some((p) => p.url.includes('/roompicture/')), 'other bedrooms\' photos are not attributed to this room');
+  assert.ok(!d.photos.some((p) => p.url.includes('ffffffff')), 'floor plan excluded from photos');
+});
+
+test('June Homes: move-in date comes from the index card for the matching bedroom ID', () => {
+  const html = '<div>Bedroom Available from 11/30/2026 <span># 873-B</span> Flatbush From $1,075 /mo</div><div>Available from 01/15/2027 # 873-C</div>';
+  const avail = june.availabilityByBedroom(html);
+  assert.equal(june.bedroomId(juneLd), '873-B');
+  assert.deepEqual(avail.get('873-B'), { date: '2026-11-30', text: '11/30/2026' });
+  assert.equal(avail.get('873-C').date, '2027-01-15');
 });
 
 test('Roomster: "Demand" items (people seeking rooms) are skipped; offered rooms parsed', () => {
@@ -77,6 +83,15 @@ test('Roomster: whole-apartment price is total rent, never presented as your sha
   const l = roomster.parseIndexItem(apt, 'apartment');
   assert.equal(l.price.monthly, null);
   assert.equal(l.totalRent.value, 3000);
+});
+
+test('Roomster: whole studio/1BR price becomes your share; coordinates give an estimated borough', () => {
+  const apt = { item: { '@type': 'Apartment', name: 'Studio for rent', url: 'https://roomster.com/listings/9', description: 'Cozy studio apartment', offers: { price: 1650 } } };
+  const l = roomster.parseIndexItem(apt, 'apartment');
+  const html = '<script type="application/ld+json">{"@type":"Thing","geo":{"latitude":40.764,"longitude":-73.923}}</script><div>Bedrooms 0 Bathrooms 1</div>';
+  const d = roomster.parseDetail(l, html);
+  assert.deepEqual(d.price, { monthly: 1650, max: 1650, type: 'whole_unit', basis: 'structured' });
+  assert.deepEqual(d.borough, { value: 'Queens', basis: 'inferred' });
 });
 
 test('Reddit: seeking posts dropped; gallery photos extracted; price basis kept', () => {
@@ -136,6 +151,15 @@ test('dedupe: shared photo merges across sources and combines photos; unrelated 
   const merged = out.find((l) => l.sources.length === 2);
   assert.deepEqual(merged.sources.map((s) => s.source).sort(), ['reddit', 'roomster']);
   assert.equal(merged.photos.length, 2);
+});
+
+test('dedupe within one source: reposts merge, templated June Homes rooms never do', () => {
+  const text = 'Spacious private room with a big window near the J train, all utilities included, message me for a viewing';
+  const mk = (source, id, price, description = text) => normalizeListing({ source, sourceId: id, sourceLabel: source, originalUrl: `https://${source}.test/${id}`, title: 'Room', description, price: { monthly: price } });
+  assert.equal(dedupe([mk('roomster', 1, 1200), mk('roomster', 2, 1200)]).length, 1, 'identical repost at same price merges');
+  assert.equal(dedupe([mk('roomster', 1, 1200), mk('roomster', 2, 1300)]).length, 2, 'same text, different price stays separate');
+  const tmpl = (n) => `This ${n}-square-foot room on New York City's Flatbush is a charming room in a 4-bedroom apartment.`;
+  assert.equal(dedupe([mk('junehomes', 1, 1100, tmpl(67)), mk('junehomes', 2, 1100, tmpl(67))]).length, 2, 'June Homes IDs are unique rooms');
 });
 
 test('dedupe: near-identical text + same price + same neighborhood merges; photos not combined on weak match', () => {

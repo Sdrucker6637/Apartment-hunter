@@ -31,6 +31,23 @@ function hoodFromUrl(url) {
   return slug.replace(/-(queens|brooklyn|manhattan|bronx)$/, '').replace(/-/g, ' ');
 }
 
+// Index cards show "Available from MM/DD/YYYY # 873-B"; the bedroom ID is the
+// home number from the URL plus the letter in the room name ("Full Bedroom B").
+export function availabilityByBedroom(html) {
+  const text = pageText(html);
+  const out = new Map();
+  for (const m of text.matchAll(/Available from\s+(\d{2})\/(\d{2})\/(\d{4})\s*#\s*(\d+-[A-Z0-9]+)/g)) {
+    out.set(m[4], { date: `${m[3]}-${m[1]}-${m[2]}`, text: `${m[1]}/${m[2]}/${m[3]}` });
+  }
+  return out;
+}
+
+export function bedroomId(ld) {
+  const home = /\/residences\/new-york-city-ny\/[^/]+\/(\d+)-/.exec(ld.url || '')?.[1];
+  const letter = /Bedroom\s+([A-Z0-9]+)\s*$/.exec(ld.name || '')?.[1];
+  return home && letter ? `${home}-${letter}` : null;
+}
+
 export function parseIndexItem(ld) {
   const url = ld.url || ld['@id']?.replace(/#.*$/, '');
   if (!url || !/\/residences\/new-york-city-ny\//.test(url)) return null;
@@ -99,14 +116,16 @@ export function parseDetail(listing, html) {
   if (minStay) out.leaseLength = field(`Minimum ${minStay}`, 'structured');
   if (/utilities (?:are )?included|all utilities included/i.test(text)) out.utilitiesIncluded = field(true, 'explicit');
 
-  // Gallery: this room's photos first, then shared-space photos of the same home.
-  const urls = [...new Set([...html.matchAll(/https:\/\/storage\.googleapis\.com\/junehomes\/media\/(?:roompicture|residencepicture)\/\d+\/[a-f0-9]+\.(?:jpe?g|png|webp)/gi)].map((m) => m[0]))];
-  const primary = listing.photos[0]?.url;
-  const firstRoom = /roompicture\/(\d+)\//.exec(urls.find((u) => u.includes('/roompicture/')) || '')?.[1];
-  const room = urls.filter((u) => firstRoom && u.includes(`/roompicture/${firstRoom}/`));
-  const shared = urls.filter((u) => u.includes('/residencepicture/'));
-  const gallery = [...new Set([primary, ...room, ...shared].filter(Boolean))].slice(0, 16);
-  out.photos = gallery.map((url) => ({ url }));
+  // Gallery: this room's own photo (from its structured data), then the
+  // apartment's shared-space photos. Detail pages also show photos of the
+  // OTHER bedrooms, which we can't attribute reliably, so those are left out.
+  const shared = [...new Set([...html.matchAll(/https:\/\/storage\.googleapis\.com\/junehomes\/media\/residencepicture\/\d+\/[a-f0-9]+\.(?:jpe?g|png|webp)/gi)].map((m) => m[0]))]
+    .filter((u) => u !== apt?.accommodationFloorPlan?.layoutImage);
+  const primary = listing.photos[0]?.url || apt?.photo?.url;
+  out.photos = [
+    ...(primary ? [{ url: primary, caption: 'This room' }] : []),
+    ...shared.slice(0, 15).map((url) => ({ url, caption: 'Shared space in this apartment' })),
+  ];
   return out;
 }
 
@@ -135,7 +154,13 @@ export async function fetchListings({ maxPages = 12, maxDetails = 40, log = () =
       log(`junehomes: index page failed (${err.message})`);
       continue;
     }
-    const found = jsonLdBlocks(body).filter((b) => b['@type'] === 'Apartment').map(parseIndexItem).filter(Boolean);
+    const avail = availabilityByBedroom(body);
+    const found = jsonLdBlocks(body).filter((b) => b['@type'] === 'Apartment').map((ld) => {
+      const item = parseIndexItem(ld);
+      const a = item && avail.get(bedroomId(ld));
+      if (a) item.moveIn = field(a, 'structured');
+      return item;
+    }).filter(Boolean);
     const fresh = found.filter((l) => l.sourceId && !seen.has(l.sourceId));
     fresh.forEach((l) => seen.add(l.sourceId));
     items.push(...fresh);

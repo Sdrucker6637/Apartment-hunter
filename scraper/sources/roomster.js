@@ -8,6 +8,7 @@ import { fetchText, jsonLdBlocks, pageText, decodeEntities, RobotsDisallowedErro
 import { parseListing } from '../parse.js';
 import { findNeighborhood } from '../neighborhoods.js';
 import { field } from '../schema.js';
+import { boroughFromCoords } from '../geo.js';
 
 const ORIGIN = 'https://roomster.com';
 const INDEXES = [
@@ -82,9 +83,20 @@ function fillFromText(listing, text) {
     listing.neighborhood = field(p.neighborhood, 'explicit');
     listing.borough = field(p.borough, 'inferred');
   }
-  // Apartment posts: only take a per-person price if the text states one.
+  // Apartment posts: only take a per-person price if the text states one…
   if (listing.listingKind === 'apartment' && p.priceType === 'room_share' && p.priceBasis !== 'likely') {
     listing.price = { monthly: p.price, max: p.priceMax, type: 'room_share', basis: p.priceBasis === 'calculated' ? 'calculated' : 'explicit' };
+  }
+  // …or when the whole unit is a studio/1BR, whose full rent is what you'd pay.
+  const beds = listing.bedrooms?.value;
+  if (listing.listingKind === 'apartment' && listing.price?.monthly == null && listing.totalRent?.value && (beds === 0 || beds === 1)) {
+    listing.price = { monthly: listing.totalRent.value, max: listing.totalRent.value, type: 'whole_unit', basis: 'structured' };
+    listing.roommates = field(0, 'inferred');
+  }
+  // Coordinates → borough, only when nothing better is known.
+  if (!listing.borough?.value && listing.location) {
+    const boro = boroughFromCoords(listing.location.lat, listing.location.lng);
+    if (boro) listing.borough = field(boro, 'inferred');
   }
   listing.contactEmails = p.contacts.emails;
   listing.contactPhones = p.contacts.phones;
@@ -114,6 +126,15 @@ export function parseDetail(listing, html) {
   if (furnished) out.furnished = field(/yes/i.test(furnished), 'structured');
   if (pets) out.pets = field(/yes/i.test(pets) ? 'Pets allowed' : 'No pets', 'structured');
   if (bathType) out.bathroomType = field(bathType.toLowerCase(), 'structured');
+
+  // "New about 16 hours ago" → approximate posting time.
+  const age = /\b(?:about\s+)?(\d+|an?)\s+(minute|hour|day|week|month)s?\s+ago\b/i.exec(text);
+  if (age && !out.postedAt) {
+    const n = /^an?$/i.test(age[1]) ? 1 : +age[1];
+    const unit = { minute: 6e4, hour: 36e5, day: 864e5, week: 6048e5, month: 2592e6 }[age[2].toLowerCase()];
+    out.postedAt = new Date(Date.now() - n * unit).toISOString();
+    out.postedAtApproximate = true;
+  }
 
   const full = /(?:About|Description)\s+([\s\S]{40,3000}?)(?:\s{2,}|Amenities|Household|Roommate preferences)/i.exec(text)?.[1];
   if (full && full.length > (out.description || '').length) out.description = full.trim();

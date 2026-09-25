@@ -83,6 +83,7 @@ export function normalizeListing(partial, { scrapedAt = new Date().toISOString()
     photos: photos.map((p, i) => ({
       url: p.url,                        // full-size (or largest available)
       thumb: p.thumb || p.url,           // card-sized when the source offers one
+      caption: p.caption || null,
       isPrimary: i === 0,
       source: partial.source,
       fromListing: true,
