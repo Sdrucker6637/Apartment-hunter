@@ -8,10 +8,14 @@ name: Scraping investigation
 on:
   workflow_dispatch:
     inputs:
-      only:
-        description: 'Comma-separated source ids (reddit,facebook,roomi)'
+      script:
+        description: 'investigate (targets in probe/investigate.js) or candidates (probe/candidates.js)'
         required: false
-        default: 'reddit,facebook,roomi'
+        default: 'investigate'
+      only:
+        description: 'Comma-separated ids (blank = all for candidates)'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -25,8 +29,11 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 22
-      - run: node probe/investigate.js
+      - run: |
+          case "$SCRIPT" in investigate|candidates) ;; *) echo "unknown script"; exit 1;; esac
+          node "probe/$SCRIPT.js"
         env:
+          SCRIPT: ${{ inputs.script }}
           ONLY: ${{ inputs.only }}
       - name: Encrypt raw responses and push to investigate-output
         run: |

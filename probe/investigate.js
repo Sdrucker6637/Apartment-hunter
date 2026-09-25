@@ -93,7 +93,7 @@ export const TARGETS = {
 };
 
 const lastHit = new Map();
-async function get(url, { manualRedirect = true } = {}) {
+export async function get(url, { manualRedirect = true } = {}) {
   const host = new URL(url).host;
   const wait = (lastHit.get(host) || 0) + 2000 - Date.now();
   if (wait > 0) await new Promise((r) => setTimeout(r, wait));
@@ -123,7 +123,7 @@ async function get(url, { manualRedirect = true } = {}) {
 }
 
 // Structure-only description of a response. No listing text leaves here.
-function describe(r, src) {
+export function describe(r, src) {
   const b = r.body || '';
   const d = {
     status: r.status, error: r.error, redirects: r.chain, contentType: r.contentType?.split(';')[0], bytes: r.bytes,

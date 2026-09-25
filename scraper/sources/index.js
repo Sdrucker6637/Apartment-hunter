@@ -23,7 +23,10 @@ const CHECKED = '2026-09-25';
 
 export const SOURCES = [
   {
-    ...junehomes.meta, domain: 'junehomes.com', enabledByDefault: true,
+    ...junehomes.meta, domain: 'junehomes.com', enabledByDefault: false,
+    defaultStatus: 'DISABLED',
+    reason: 'Disabled as a production source (2026-09-25): June Homes is mostly furnished, flexible/short-term company-managed housing, not the individual long-term room shares this app aggregates. The adapter still works; set ENABLE_SOURCES=junehomes to run it.',
+    nextStep: 'None planned. Kept for reference; not counted toward core listing totals.',
     run: (cfg, log) => junehomes.fetchListings({ ...cfg.junehomes, maxShare: cfg.maxShare, log }),
     review: {
       checkedAt: CHECKED, technicallyAccessible: true, scrapingTested: true, termsReviewed: true, automatedAccessPermitted: 'yes',
