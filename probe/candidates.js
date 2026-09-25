@@ -38,7 +38,18 @@ export const CANDIDATES = {
   roomies: { name: 'Roomies.com', origin: 'https://www.roomies.com', pages: ['/rooms/new-york-new-york', '/new-york-ny'] },
   roomsurf: { name: 'RoomSurf', origin: 'https://www.roomsurf.com', pages: ['/'] },
   rentberry: { name: 'Rentberry', origin: 'https://rentberry.com', pages: ['/apartments/s/new-york-ny', '/'] },
+  // Round 2 (follow-ups + new candidates)
+  snag2: { name: 'Snag sublets (terms + sitemap)', origin: 'https://snagsublets.com', pages: ['/sitemap.xml', '/about'], terms: ['https://snagsublets.com/terms', 'https://snagsublets.com/tos', 'https://snagsublets.com/terms-of-service'] },
+  nybits2: { name: 'NYBits (allowed search pages)', origin: 'https://www.nybits.com', pages: ['/search/studio.html', '/search/1br.html', '/manhattan/', '/brooklyn/'], terms: ['https://www.nybits.com/terms.html'] },
+  roomsterterms: { name: 'Roomster (terms re-read)', origin: 'https://www.roomster.com', pages: [], terms: ['https://www.roomster.com/terms', 'https://www.roomster.com/tos', 'https://roomster.com/terms-of-use'] },
+  iroomit: { name: 'iROOMit', origin: 'https://www.iroomit.com', pages: ['/nyc'] },
+  platuni: { name: 'Platuni', origin: 'https://www.platuni.com', pages: ['/new-york', '/'] },
+  transparentcity: { name: 'TransparentCity', origin: 'https://www.transparentcity.co', pages: ['/'] },
+  sharedeasy: { name: 'SharedEasy', origin: 'https://sharedeasy.club', pages: ['/furnished-rooms-for-rent-nyc/'] },
 };
+
+// Clauses about copying/extracting/republishing content (not only "scraping").
+const REUSE = /\b(?:copy|copied|reproduc|republish|redistribut|extract|re-?utili[sz]|systematic(?:ally)?\s+(?:retriev|download|collect)|framing|mirror(?:ing)?|in-line linking|compile|database)/i;
 
 const TERMS_HREF = /href="([^"#]*(?:terms|tos\b|legal|conditions|user-agreement)[^"#]*)"/gi;
 const PRICE = /\$\s?\d{1,2},?\d{3}\b/g;
@@ -79,7 +90,7 @@ async function probe(id, c) {
 
   const termsUrls = new Set(c.terms || []);
   const queue = [...c.pages];
-  if (!queue.includes('/')) queue.push('/');
+  if (!queue.includes('/') && !c.terms) queue.push('/');
   let detailTried = false;
   for (let i = 0; i < queue.length; i++) {
     const path = queue[i];
@@ -110,6 +121,7 @@ async function probe(id, c) {
     out.terms.push({
       url: t, status: res.status ?? res.error, antiBot: res.antiBot, bytes: (res.body || '').length,
       clauses: [...new Set(text.split(/(?<=[.;:])\s+/).filter((s) => PROHIBITS.test(s) && s.length > 30).map((s) => s.slice(0, 600)))].slice(0, 6),
+      reuseClauses: [...new Set(text.split(/(?<=[.;:])\s+/).filter((s) => REUSE.test(s) && !PROHIBITS.test(s) && s.length > 30).map((s) => s.slice(0, 600)))].slice(0, 6),
       file: await save(res),
     });
   }
@@ -129,6 +141,7 @@ function log(s) {
   for (const t of s.terms) {
     console.log(`terms ${t.url}: HTTP ${t.status} ${(t.antiBot || []).join(',')} ${t.bytes}B prohibiting-clauses=${t.clauses.length}`);
     for (const c of t.clauses) console.log(`    » ${c}`);
+    for (const c of t.reuseClauses || []) console.log(`    ≈ ${c}`);
   }
 }
 
