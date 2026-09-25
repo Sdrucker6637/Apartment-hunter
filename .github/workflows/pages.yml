@@ -1,0 +1,67 @@
+name: Publish site (GitHub Pages)
+
+# Click "Run workflow" to scrape the live sources and publish the site with
+# REAL, SANITIZED listings to GitHub Pages.
+#
+# - Sanitized by scripts/sanitize.js before publishing: emails and phone
+#   numbers are removed from listing text, extracted contact lists are
+#   emptied, and posters' street addresses are dropped (business addresses
+#   like June Homes buildings are kept). If the privacy audit fails, nothing
+#   is published.
+# - No scraped data is committed to the repository; the site is deployed as
+#   a Pages artifact. The log contains counts and statuses only.
+# - A GitHub Pages site is public to anyone with its link.
+#
+# One-time setup: Settings → Pages → Build and deployment → Source: "GitHub Actions".
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test --silent > /dev/null && echo "tests passed"
+
+      - name: Scrape live sources
+        run: node scraper/index.js
+        env:
+          REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
+          REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
+          ENABLE_SOURCES: ${{ vars.ENABLE_SOURCES }}
+          MAX_SHARE: ${{ vars.MAX_SHARE }}
+
+      - name: Sanitize, privacy-audit and assemble the site
+        run: |
+          set -euo pipefail
+          mkdir -p _site
+          cp public/index.html public/app.js public/styles.css _site/
+          node scripts/sanitize.js public/data _site/data
+          touch _site/.nojekyll
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

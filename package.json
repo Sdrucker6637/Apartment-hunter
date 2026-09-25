@@ -2,7 +2,7 @@
   "name": "apartment-hunter",
   "version": "0.1.0",
   "private": true,
-  "description": "Aggregates NYC room shares (1-3BR, your share under $1,700) from Reddit, Craigslist and hand-added Facebook posts.",
+  "description": "Aggregates NYC rooms and roommate listings (your share under $1,700) from sources that permit automated access, with real photos.",
   "type": "module",
   "engines": {
     "node": ">=20"
