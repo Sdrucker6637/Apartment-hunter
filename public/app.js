@@ -641,6 +641,7 @@ function renderStatus() {
     ].filter(([, v]) => v);
     return `<details class="src-review"><summary>Investigation details (checked ${esc(r.checkedAt)})</summary>
       <dl>${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
+      ${r.termsNotes?.length ? `<p class="small"><strong>Terms notes:</strong></p><ul class="small">${r.termsNotes.map((b) => `<li>${esc(b)}</li>`).join('')}</ul>` : ''}
       ${r.blockers?.length ? `<p class="small"><strong>Blockers:</strong></p><ul class="small">${r.blockers.map((b) => `<li>${esc(b)}</li>`).join('')}</ul>` : ''}
       ${r.pagesTested?.length ? `<p class="small"><strong>Pages tested:</strong> ${esc(r.pagesTested.join(' · '))}</p>` : ''}
       ${s.nextStep ? `<p class="small"><strong>Next step:</strong> ${esc(s.nextStep)}</p>` : ''}
