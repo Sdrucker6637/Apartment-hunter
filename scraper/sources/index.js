@@ -86,6 +86,7 @@ export const SOURCES = [
         'Every group and Marketplace URL redirects (302) to the login page, including groups listed as public',
         'Graph API: Meta removed the Groups API and its permissions (groups_access_member_info, publish_to_groups) from every API version on 2024-04-22; no Login permission grants reading group posts, and there is no Marketplace read API',
         'Terms: "You may not access or collect data from our Products using automated means (without our prior permission) … regardless of whether such automated access or collection is undertaken while logged-in" — so automating your own logged-in session is not permitted either',
+        'Authenticated-session approach (reviewed 2026-09-25, not built): a scheduled Playwright worker reusing a saved Facebook login is "automated means" under the terms above, which apply while logged in; a dedicated scraper account also breaks the Terms of Service ("Create only one account (your own)", real name)',
         'Meta Content Library (includes public-group posts) is for approved researchers via an application, used inside Meta\'s clean-room environment; not available to a personal listings app',
       ],
     },
