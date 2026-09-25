@@ -45,6 +45,7 @@ export const CANDIDATES = {
   iroomit: { name: 'iROOMit', origin: 'https://www.iroomit.com', pages: ['/nyc'] },
   platuni: { name: 'Platuni', origin: 'https://www.platuni.com', pages: ['/new-york', '/'] },
   transparentcity: { name: 'TransparentCity', origin: 'https://www.transparentcity.co', pages: ['/'] },
+  snag3: { name: 'Snag sublets (NYC hub + terms)', origin: 'https://snagsublets.com', pages: ['/sublets/new-york', '/sublets/new-york/bushwick'], terms: ['https://snagsublets.com/legal/terms'] },
   sharedeasy: { name: 'SharedEasy', origin: 'https://sharedeasy.club', pages: ['/furnished-rooms-for-rent-nyc/'] },
 };
 
