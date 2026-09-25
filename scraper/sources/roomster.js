@@ -37,7 +37,8 @@ export function parseIndexItem(listItem, kind) {
   const url = item.url && new URL(item.url.replace(/([^:]\/)\/+/g, '$1'), ORIGIN).href;
   const id = /\/listings\/(\d+)/.exec(url || '')?.[1];
   if (!id) return null;
-  const price = priceOf(item);
+  const raw = priceOf(item);
+  const price = raw >= 400 && raw <= 15000 ? raw : NaN; // e.g. "$175" nightly rates → unknown
   const title = decodeEntities(item.name || '');
   const description = decodeEntities(item.description || '');
   const locality = item.address?.addressLocality || item.itemOffered?.address?.addressLocality || item.areaServed?.address?.addressLocality || '';
@@ -103,29 +104,36 @@ function fillFromText(listing, text) {
   return listing;
 }
 
+// NJ places commonly searched alongside NYC; other out-of-area listings are dropped.
+const NEARBY_NJ = /jersey city|hoboken|union city|weehawken|west new york|north bergen/i;
+
+// Detail pages have a few labeled fields: "Price/month", "Listing Type",
+// "Available Date", a location line ("Astoria, Queens, NY, USA"),
+// "Description", and "Additional information" ("Furnished: No"…). Anything
+// else comes from the free-text parser and is labeled as such.
 export function parseDetail(listing, html) {
   const out = { ...listing };
-  const text = pageText(html);
+  const text = pageText(html).replace(/\s+/g, ' ').replace(/\b(?:ID Checked|Email Validated|Phone Validated|Verified|Premium)\b/g, '|');
   const thing = jsonLdBlocks(html).find((b) => b.geo);
   if (thing?.geo?.latitude) out.location = { lat: thing.geo.latitude, lng: thing.geo.longitude, precision: 'approximate' };
 
-  // Labeled facts on the detail page ("Bedrooms 2", "Bathrooms 1", "Furnished Yes"...)
-  const label = (re) => re.exec(text)?.[1]?.trim();
-  const beds = label(/\bBedrooms?\s*:?\s*(\d+)/i);
-  const baths = label(/\bBathrooms?\s*:?\s*(\d+(?:\.\d)?)/i);
-  const people = label(/(?:People in household|Household size|Roommates?)\s*:?\s*(\d+)/i);
-  const furnished = label(/\bFurnished\s*:?\s*(Yes|No)\b/i);
-  const pets = label(/\bPets?\s*(?:allowed|OK)?\s*:?\s*(Yes|No)\b/i);
-  const bathType = label(/\b(Private|Shared) bathroom\b/i);
-  if (beds) out.bedrooms = field(+beds, 'structured');
-  if (baths) out.bathrooms = field(+baths, 'structured');
-  if (people) {
-    out.roommates = field(+people, 'structured');
-    out.totalPeople = field(+people + 1, 'calculated');
+  const loc = /([A-Z][\w.'’&-]*(?: [\w.'’&-]+)*(?:, [A-Z][\w .'’&-]*)*), (NY|NJ|[A-Z]{2}), USA\s+Description/.exec(text);
+  if (loc) {
+    out.locationLine = `${loc[1]}, ${loc[2]}`;
+    if (loc[2] !== 'NY' && !(loc[2] === 'NJ' && NEARBY_NJ.test(loc[1]))) out.outOfArea = true;
+    const hood = findNeighborhood(loc[1]);
+    if (loc[2] === 'NJ' && !hood.borough) hood.borough = 'New Jersey';
+    if (!out.neighborhood?.value && hood.neighborhood) out.neighborhood = field(hood.neighborhood, 'structured');
+    if (hood.borough) out.borough = field(hood.borough, hood.neighborhood ? 'inferred' : 'structured');
   }
+
+  const desc = /, USA\s+Description\s+([\s\S]{15,4000}?)\s+(?:Additional information|Residence Building Type|Lifestyle|Show all photos|Report|$)/.exec(text)?.[1];
+  if (desc && desc.length >= (out.description || '').length * 0.6) out.description = desc.trim();
+
+  const furnished = /\bFurnished:\s*(Yes|No)\b/i.exec(text)?.[1];
   if (furnished) out.furnished = field(/yes/i.test(furnished), 'structured');
+  const pets = /\bPets?(?: allowed)?:\s*(Yes|No)\b/i.exec(text)?.[1];
   if (pets) out.pets = field(/yes/i.test(pets) ? 'Pets allowed' : 'No pets', 'structured');
-  if (bathType) out.bathroomType = field(bathType.toLowerCase(), 'structured');
 
   // "New about 16 hours ago" → approximate posting time.
   const age = /\b(?:about\s+)?(\d+|an?)\s+(minute|hour|day|week|month)s?\s+ago\b/i.exec(text);
@@ -136,12 +144,9 @@ export function parseDetail(listing, html) {
     out.postedAtApproximate = true;
   }
 
-  const full = /(?:About|Description)\s+([\s\S]{40,3000}?)(?:\s{2,}|Amenities|Household|Roommate preferences)/i.exec(text)?.[1];
-  if (full && full.length > (out.description || '').length) out.description = full.trim();
-
   const gallery = [...new Set([...html.matchAll(/https:\/\/cdn-static\.roomster\.com\/pics\/Original\/[A-Za-z0-9-]+\.(?:jpe?g|png|webp)/g)].map((m) => m[0]))];
   if (gallery.length) out.photos = gallery.slice(0, 16).map((u) => ({ url: sized(u, 1280), thumb: sized(u, 640) }));
-  return fillFromText(out, `${out.description}\n${text.slice(0, 4000)}`);
+  return fillFromText(out, out.description);
 }
 
 // robots.txt disallows "?search_params" pagination, so we visit the
@@ -199,6 +204,7 @@ export async function fetchListings({ maxPages = 14, maxDetails = 45, log = () =
     }
     out.push(fillFromText(item, item.description));
   }
-  log(`roomster: ${items.length} offers from ${pages} index pages, ${enriched} enriched from detail pages`);
-  return out;
+  const inArea = out.filter((l) => !l.outOfArea);
+  log(`roomster: ${items.length} offers from ${pages} index pages, ${enriched} enriched from detail pages, ${out.length - inArea.length} outside NYC dropped`);
+  return inArea;
 }

@@ -327,7 +327,11 @@ export function parseListing({ title = '', body = '', flair = '', hints = {}, po
   const text = `${title}\n${body}`;
   const ref = postedAt ? new Date(postedAt) : new Date();
   const kind = hints.kind || listingKind(text);
-  const bedrooms = hints.bedrooms ?? findBedrooms(title) ?? findBedrooms(body);
+  let bedrooms = hints.bedrooms ?? findBedrooms(title) ?? findBedrooms(body);
+  if (bedrooms === 1 && kind === 'room' && hints.bedrooms == null
+    && !/\b(?:1|one)[- ]?(?:br|bd|bed(?:room)?)\s+(?:apartment|apt|unit|flat)|\b1b1b\b|\bin (?:a|my|our) (?:1|one)[- ]?(?:br|bed(?:room)?)/i.test(text)) {
+    bedrooms = null; // "1 bedroom for rent" = the room on offer, not the apartment size
+  }
   const roomsAvailable = findRoomsAvailable(text);
   const prices = findPrices(text);
   // A title price is usually the headline rent; if present, don't let body prices widen the range much.

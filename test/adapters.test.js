@@ -173,3 +173,34 @@ test('dedupe: near-identical text + same price + same neighborhood merges; photo
   assert.equal(out[0].sources.length, 2);
   assert.equal(out[0].photos.length, 1, 'text-only match does not merge photos');
 });
+
+// Regression tests from the 2026-09-25 live-data audit (page shape real, text anonymized).
+const roomsterDetail = (loc, desc, extra = '') => `<div>2 hours ago Show all photos Title Price/month $ 1100 USD Listing Type Room for rent Available Date Sep 25, 2026 ID Checked Email Validated Phone Validated ${loc}, USA Description ${desc} Additional information Residence Building Type: Apartment Furnished: No ${extra}</div>`;
+
+test('Roomster detail: location line, clean description, no invented roommates or bedrooms', () => {
+  const base = roomster.parseIndexItem({ item: { '@type': 'Room', name: 'peaceful and safe bedroom for rent', url: 'https://roomster.com/listings/1', offers: { price: 1100 } } }, 'room');
+  const d = roomster.parseDetail(base, roomsterDetail('Astoria, Queens, NY', 'Room for rent in Woodside, Queens. I live here with my family of 3. Laundry in the building.'));
+  assert.equal(d.description.startsWith('Room for rent in Woodside'), true, 'page chrome not included');
+  assert.equal(d.neighborhood.value, 'Astoria');
+  assert.deepEqual(d.borough, { value: 'Queens', basis: 'inferred' });
+  assert.deepEqual(d.furnished, { value: false, basis: 'structured' });
+  assert.equal(d.bedrooms?.value ?? null, null, '"bedroom for rent" is not a 1BR apartment');
+  assert.equal(d.locationLine, 'Astoria, Queens, NY');
+  assert.notEqual(d.roommates?.basis, 'structured', 'roommates never labeled as structured without a real field');
+  assert.equal(d.laundry.value, 'in_building');
+  assert.ok(!d.outOfArea);
+});
+
+test('Roomster detail: suburban NJ is out of area; Jersey City is kept', () => {
+  const base = roomster.parseIndexItem({ item: { '@type': 'Apartment', name: 'Apartment', url: 'https://roomster.com/listings/2', offers: { price: 1950 } } }, 'apartment');
+  assert.equal(roomster.parseDetail(base, roomsterDetail('Larch Street, Carteret, NJ', '2 bedroom apartment for rent.')).outOfArea, true);
+  const jc = roomster.parseDetail(base, roomsterDetail('Grove Street, Jersey City, NJ', '2 bedroom apartment for rent.'));
+  assert.ok(!jc.outOfArea);
+  assert.equal(jc.borough.value, 'New Jersey');
+});
+
+test('Roomster: implausible monthly amounts (e.g. $175 nightly) become unknown', () => {
+  const l = roomster.parseIndexItem({ item: { '@type': 'Apartment', name: 'Apt', url: 'https://roomster.com/listings/3', offers: { price: 175 } } }, 'apartment');
+  assert.equal(l.totalRent.value, null);
+  assert.equal(l.price, undefined);
+});
