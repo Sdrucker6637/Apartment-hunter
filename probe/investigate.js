@@ -209,8 +209,10 @@ function logSource(s) {
   console.log(`\n=== ${s.name} ===`);
   for (const r of s.robots) console.log(`robots ${r.origin}: HTTP ${r.status ?? r.error} root-allowed=${r.rootAllowed?.allowed ?? '?'} ${r.excerpt.join(' | ')}`);
   if (s.robotsText) console.log(`robots.txt full text:\n${s.robotsText}`);
-  for (const t of s.terms) console.log(`terms ${t.url}: HTTP ${t.status} ${t.antiBot?.join(',') || ''} ${t.bytes ?? 0}B prohibiting-clauses=${t.clauses.length}`);
+  for (const t of s.terms) {
+    console.log(`terms ${t.url}: HTTP ${t.status} ${t.antiBot?.join(',') || ''} ${t.bytes ?? 0}B prohibiting-clauses=${t.clauses.length}`);
     for (const c of t.clauses) console.log(`    » ${c}`);
+  }
   for (const p of s.pages) {
     console.log(`- ${p.kind}: HTTP ${p.status ?? p.error}${p.redirects?.length ? ` via ${p.redirects.join(', ')}` : ''} ${p.contentType || ''} ${p.bytes ?? 0}B`
       + ` robots=${p.robots.allowed === null ? '?' : p.robots.allowed ? 'allowed' : 'DISALLOWED'}`
