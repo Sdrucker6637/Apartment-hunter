@@ -16,54 +16,74 @@
     <div class="masthead-inner">
       <a class="brand" href="./" aria-label="Apartment Hunter home">
         <span class="brand-mark" aria-hidden="true"></span>
-        <span class="brand-text"><strong>Apartment Hunter</strong><span>NYC roommate search</span></span>
+        <span class="brand-text"><strong>Apartment Hunter</strong><span>One search across NYC roommate sites</span></span>
       </a>
-      <button class="freshness" id="freshness" type="button" aria-haspopup="dialog" aria-controls="status-dialog">
+      <button class="freshness" id="freshness" type="button" aria-haspopup="dialog">
         <span class="dot" id="freshness-dot"></span>
         <span id="freshness-text">Loading listings…</span>
       </button>
     </div>
   </header>
 
-  <section class="searchbar" aria-label="Search">
-    <div class="searchbar-inner">
-      <label class="sb-field sb-price">
-        <span class="sb-label">Your max share</span>
-        <span class="sb-value"><output id="max-price-out">$1,700</output>/mo</span>
-        <input type="range" id="max-price" min="500" max="1700" step="25" aria-label="Maximum monthly share">
-      </label>
-      <div class="sb-field sb-where">
-        <span class="sb-label">Where</span>
-        <button type="button" class="sb-button" id="where-btn" aria-haspopup="dialog" aria-expanded="false">All of NYC</button>
+  <section class="search" aria-label="What are you looking for?">
+    <div class="search-inner">
+      <div class="q-row q-type">
+        <span class="q-label">I'm looking for</span>
+        <div class="type-pills" id="types" role="group" aria-label="Listing type"></div>
       </div>
-      <label class="sb-field sb-date">
-        <span class="sb-label">Move in by</span>
-        <input type="date" id="move-by">
-      </label>
-      <div class="sb-field sb-beds">
-        <span class="sb-label">Bedrooms</span>
-        <div class="chips" id="bedrooms" role="group" aria-label="Bedrooms in the apartment">
-          <button type="button" data-value="1">1</button><button type="button" data-value="2">2</button><button type="button" data-value="3">3</button><button type="button" data-value="4">4+</button>
+
+      <div class="q-grid">
+        <label class="q-field q-price">
+          <span class="q-label">My max share</span>
+          <span class="q-value"><output id="max-price-out">$1,700</output><small>/mo</small></span>
+          <input type="range" id="max-price" min="500" max="1700" step="25" aria-label="Maximum monthly share">
+        </label>
+        <div class="q-field q-where">
+          <span class="q-label">Where</span>
+          <div class="chips" id="boros" role="group" aria-label="Borough"></div>
+          <button type="button" class="link" id="where-btn">Neighborhoods…</button>
+        </div>
+        <label class="q-field q-move">
+          <span class="q-label">Move in by</span>
+          <select id="move-by"></select>
+        </label>
+        <div class="q-field">
+          <span class="q-label">Existing roommates</span>
+          <div class="chips" id="roommates" role="group" aria-label="People already living there">
+            <button type="button" data-value="0">0</button><button type="button" data-value="1">1</button><button type="button" data-value="2">2</button><button type="button" data-value="3">3+</button>
+          </div>
+        </div>
+        <div class="q-field">
+          <span class="q-label">Bedrooms in apartment</span>
+          <div class="chips" id="bedrooms" role="group" aria-label="Bedrooms">
+            <button type="button" data-value="0">Studio</button><button type="button" data-value="1">1</button><button type="button" data-value="2">2</button><button type="button" data-value="3">3</button><button type="button" data-value="4">4+</button>
+          </div>
         </div>
       </div>
-      <div class="sb-field sb-mates">
-        <span class="sb-label">Roommates</span>
-        <div class="chips" id="roommates" role="group" aria-label="People you'd be joining">
-          <button type="button" data-value="0">0</button><button type="button" data-value="1">1</button><button type="button" data-value="2">2</button><button type="button" data-value="3">3+</button>
+
+      <div class="q-row q-toggles">
+        <div class="toggles" id="toggles" role="group" aria-label="Must have">
+          <button type="button" data-t="laundry:unit">🧺 W/D in unit</button>
+          <button type="button" data-t="laundry:building">🧺 Laundry in building</button>
+          <button type="button" data-t="furnished">🛋 Furnished</button>
+          <button type="button" data-t="room:private">🚪 Private room</button>
+          <button type="button" data-t="photos">📷 Has photos</button>
         </div>
+        <button type="button" class="more-btn" id="more-btn">More filters <span id="more-count" class="badge-count" hidden></span></button>
       </div>
-      <button type="button" class="more-btn" id="more-btn" aria-haspopup="dialog">
-        <svg viewBox="0 0 20 20" aria-hidden="true"><path d="M3 5h14M6 10h8M8.5 15h3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
-        More <span id="more-count" class="badge-count" hidden></span>
-      </button>
+
+      <div class="q-row q-sources">
+        <span class="q-label">Sources</span>
+        <div class="source-checks" id="sources" role="group" aria-label="Sources"></div>
+      </div>
     </div>
   </section>
 
   <main class="results" id="results">
     <div class="results-head">
-      <div>
-        <h1 id="results-title">Rooms & shares in NYC</h1>
-        <p class="results-sub" id="results-sub"></p>
+      <div class="results-summary">
+        <p class="summary" id="summary" aria-live="polite"></p>
+        <p class="unknown-note" id="unknown-note" hidden></p>
       </div>
       <div class="results-tools">
         <button type="button" class="pill-toggle" id="saved-toggle" aria-pressed="false">♡ Saved <span id="saved-count"></span></button>
@@ -81,19 +101,18 @@
       </div>
     </div>
     <div class="active-filters" id="active-filters"></div>
-    <div class="grid" id="grid" aria-live="polite"></div>
+    <div class="grid" id="grid"></div>
     <div class="empty" id="empty" hidden></div>
   </main>
 
   <footer class="site-foot">
-    <p>Listings link back to their original source. Photos are shown from the source's own servers. Details marked <em>Estimated</em> were inferred by Apartment Hunter, not stated in the listing.</p>
-    <button type="button" class="link" id="foot-status">Sources &amp; data status</button>
+    <p>Apartment Hunter doesn't own any listing: every card links to the original post on its source site, and photos load from that site. Labels show where each fact comes from — <em>Stated</em> means the listing says it; nothing is shown as a fact unless the listing states it.</p>
+    <button type="button" class="link" id="foot-status">Sources, coverage &amp; data quality</button>
   </footer>
 
-  <!-- Where: neighborhoods & boroughs -->
   <dialog class="sheet" id="where-dialog" aria-labelledby="where-title">
     <div class="sheet-head">
-      <h2 id="where-title">Where do you want to live?</h2>
+      <h2 id="where-title">Neighborhoods</h2>
       <button type="button" class="icon-close" data-close aria-label="Close">×</button>
     </div>
     <input type="search" id="hood-q" class="sheet-search" placeholder="Search neighborhoods">
@@ -104,7 +123,6 @@
     </div>
   </dialog>
 
-  <!-- More filters -->
   <dialog class="sheet" id="more-dialog" aria-labelledby="more-title">
     <div class="sheet-head">
       <h2 id="more-title">More filters</h2>
@@ -112,20 +130,6 @@
     </div>
     <div class="sheet-body">
       <label class="field"><span class="field-label">Keyword</span><input type="search" id="q" placeholder="e.g. near L train, sunny, dishwasher"></label>
-      <div class="field"><span class="field-label">Washer / dryer</span>
-        <div class="segmented" id="laundry" role="radiogroup">
-          <button type="button" data-value="any" role="radio">Any</button>
-          <button type="button" data-value="building" role="radio">In building</button>
-          <button type="button" data-value="unit" role="radio">In unit</button>
-        </div>
-      </div>
-      <div class="field"><span class="field-label">Furnished</span>
-        <div class="segmented" id="furnished" role="radiogroup">
-          <button type="button" data-value="any" role="radio">Any</button>
-          <button type="button" data-value="yes" role="radio">Furnished</button>
-          <button type="button" data-value="no" role="radio">Unfurnished</button>
-        </div>
-      </div>
       <div class="field"><span class="field-label">Room</span>
         <div class="segmented" id="roomtype" role="radiogroup">
           <button type="button" data-value="any" role="radio">Any</button>
@@ -133,23 +137,25 @@
           <button type="button" data-value="shared" role="radio">Shared room</button>
         </div>
       </div>
-      <div class="field"><span class="field-label">Sources</span><div class="chips wrap" id="sources"></div></div>
-      <label class="check"><input type="checkbox" id="photos-only"><span>Only listings with photos</span></label>
-      <label class="check"><input type="checkbox" id="incomplete"><span>Include listings with unknown price or bedrooms</span></label>
+      <div class="field"><span class="field-label">Posted by</span>
+        <div class="segmented" id="postedby" role="radiogroup">
+          <button type="button" data-value="any" role="radio">Anyone</button>
+          <button type="button" data-value="people" role="radio">Not a company/broker</button>
+        </div>
+      </div>
+      <label class="check"><input type="checkbox" id="include-unknown"><span>When a filter is set, also include listings that <strong>don't say</strong> (e.g. roommates not stated)</span></label>
       <label class="check"><input type="checkbox" id="show-hidden"><span>Show listings I've hidden</span></label>
     </div>
     <div class="sheet-foot">
-      <button type="button" class="btn ghost" id="reset-btn">Reset all</button>
+      <button type="button" class="btn ghost" id="reset-btn">Reset everything</button>
       <button type="button" class="btn primary" data-close>Show results</button>
     </div>
   </dialog>
 
-  <!-- Listing detail -->
   <dialog class="detail" id="detail-dialog" aria-labelledby="detail-title">
     <div id="detail-content"></div>
   </dialog>
 
-  <!-- Fullscreen photos -->
   <dialog class="lightbox" id="lightbox" aria-label="Photo viewer">
     <button type="button" class="lb-close" data-close aria-label="Close">×</button>
     <button type="button" class="lb-nav prev" data-lb="-1" aria-label="Previous photo">‹</button>
@@ -157,10 +163,9 @@
     <button type="button" class="lb-nav next" data-lb="1" aria-label="Next photo">›</button>
   </dialog>
 
-  <!-- Sources & diagnostics -->
   <dialog class="sheet wide" id="status-dialog" aria-labelledby="status-title">
     <div class="sheet-head">
-      <h2 id="status-title">Sources &amp; data status</h2>
+      <h2 id="status-title">Sources, coverage &amp; data quality</h2>
       <button type="button" class="icon-close" data-close aria-label="Close">×</button>
     </div>
     <div class="sheet-body" id="status-body"></div>

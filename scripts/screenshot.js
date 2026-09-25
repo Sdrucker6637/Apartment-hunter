@@ -22,7 +22,7 @@ desk.on('console', (m) => m.type() === 'error' && !/Failed to load resource/.tes
 await desk.goto(BASE, { waitUntil: 'networkidle' });
 await settle(desk);
 report.cards = await desk.locator('.card').count();
-report.resultsText = await desk.locator('#results-sub').textContent();
+report.resultsText = await desk.locator('#summary').textContent();
 report.freshness = await desk.locator('#freshness-text').textContent();
 await desk.screenshot({ path: 'shots/desktop-grid.png' });
 await desk.screenshot({ path: 'shots/desktop-full.png', fullPage: true });
@@ -59,6 +59,16 @@ if (bestId) {
   }
   await desk.keyboard.press('Escape');
 }
+
+// The core use case: set a search like a roommate-seeker would.
+await desk.locator('#types button[data-value="ROOM_IN_SHARED_APARTMENT"]').click().catch(() => {});
+await desk.locator('#boros button[data-value="Brooklyn"]').click().catch(() => {});
+await desk.waitForTimeout(600);
+report.roomsInBrooklyn = await desk.locator('#summary').textContent();
+report.roomsInBrooklynCards = await desk.locator('.card').count();
+await desk.screenshot({ path: 'shots/search-rooms-brooklyn.png' });
+await desk.locator('#reset-btn').evaluate((b) => b.click());
+await desk.waitForTimeout(300);
 
 // Status panel
 await desk.locator('#freshness').click();
