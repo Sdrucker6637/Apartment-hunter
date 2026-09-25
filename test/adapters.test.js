@@ -318,3 +318,21 @@ test('Roomi: parses the Next.js flight payload, maps structured fields, never co
   assert.equal(studio.outOfArea, false, 'Jersey City is kept');
   assert.equal(philly.outOfArea, true);
 });
+
+// Regression from the 2026-09-25 verify run: a Roomster cross-post of "a Full
+// bedroom" in a June Homes building merged with two different June rooms.
+test('dedupe: building-level evidence never merges when the building holds several units', () => {
+  const pin = { lat: 40.6912, lng: -73.9701 };
+  const mk = (source, id, share, extra = {}) => normalizeListing({
+    source, sourceId: id, sourceLabel: source, originalUrl: `https://${source}.test/${id}`, title: 'Room',
+    price: { monthly: share }, bedrooms: { value: 4, basis: 'structured' }, neighborhood: { value: 'Fort Greene', basis: 'structured' },
+    location: pin, ...extra,
+  });
+  const post = mk('roomster', 1, 1460, { description: 'Full bedroom in a 4 bedroom apartment, speak to a representative' });
+  const roomD = mk('junehomes', 'D', 1450, { address: '71 Clermont Avenue' });
+  const roomC = mk('junehomes', 'C', 1525, { address: '71 Clermont Avenue' });
+  const opts = { uniqueIdSources: new Set(['junehomes']) };
+  assert.equal(compare(post, roomD, opts).buildingOnly, true);
+  assert.equal(dedupe([post, roomD, roomC], opts).length, 3, 'ambiguous: several June rooms in that building');
+  assert.equal(dedupe([post, roomD], opts).length, 1, 'a single unit in the building can merge');
+});

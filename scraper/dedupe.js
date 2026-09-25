@@ -120,7 +120,11 @@ export function compare(a, b, { uniqueIdSources = new Set() } = {}) {
   const evidence = [];
   let score = 0;
   let specific = false;
-  const add = (pts, label, isSpecific = false) => { score += pts; evidence.push(label); if (isSpecific) specific = true; };
+  let unitSpecific = false; // evidence about THIS listing, not just its building
+  const add = (pts, label, isSpecific = false, isUnit = true) => {
+    score += pts; evidence.push(label);
+    if (isSpecific) { specific = true; if (isUnit) unitSpecific = true; }
+  };
 
   const sim = textSimilarity(`${a.title} ${a.description}`, `${b.title} ${b.description}`);
   if (sim >= 0.6) add(4, `description ${sim.toFixed(2)} similar`, true);
@@ -129,10 +133,10 @@ export function compare(a, b, { uniqueIdSources = new Set() } = {}) {
   const ca = contacts(a);
   if ([...contacts(b)].some((c) => ca.has(c))) add(3, 'same contact', true);
   const na = normalizeAddress(a.address);
-  if (na && na === normalizeAddress(b.address)) add(2, 'same street address', true);
+  if (na && na === normalizeAddress(b.address)) add(2, 'same street address', true, false);
   if (a.location && b.location) {
     const m = metersBetween(a.location, b.location);
-    if (m <= 120) add(2, `map pins ${Math.round(m)} m apart`, true);
+    if (m <= 120) add(2, `map pins ${Math.round(m)} m apart`, true, false);
   }
   if (a.price.share != null && b.price.share != null && close(a.price.share, b.price.share, 0.02)) add(1, 'same share');
   else if (a.price.total != null && b.price.total != null && close(a.price.total, b.price.total, 0.02)) add(1, 'same total');
@@ -142,20 +146,37 @@ export function compare(a, b, { uniqueIdSources = new Set() } = {}) {
   const mb = b.moveIn.value?.date;
   if (ma && mb && dayDiff(ma, mb) <= 7) add(1, 'same move-in week');
 
-  if (specific && score >= 4) return { same: true, reason: evidence.join(' + '), evidence };
+  // buildingOnly: the specific evidence locates the building, not the unit;
+  // dedupe() then refuses the merge when that building holds several units.
+  if (specific && score >= 4) return { same: true, reason: evidence.join(' + '), evidence, buildingOnly: !unitSpecific };
   return { same: false, reason: null, evidence };
 }
 
 // Merges duplicates into one listing that links to every source.
 // Photos are combined only across a strong match (shared photo/URL/id).
+const sameBuilding = (x, y) => {
+  const nx = normalizeAddress(x.address);
+  if (nx && nx === normalizeAddress(y.address)) return true;
+  return !!(x.location && y.location && metersBetween(x.location, y.location) <= 120);
+};
+
 export function dedupe(listings, opts = {}) {
+  const uniqueIdSources = opts.uniqueIdSources || new Set();
   const groups = [];
   for (const l of [...listings].sort((x, y) => new Date(y.postedAt || 0) - new Date(x.postedAt || 0))) {
     let placed = false;
     for (const g of groups) {
-      const { same, reason } = compare(g.primary, l, opts);
-      if (!same) continue;
-      g.members.push({ listing: l, reason });
+      const r = compare(g.primary, l, opts);
+      if (!r.same) continue;
+      const all = [g.primary, ...g.members.map((m) => m.listing)];
+      // Never put two different units of a unique-ID source in one group.
+      if (uniqueIdSources.has(l.source) && all.some((x) => x.source === l.source && x.id !== l.id)) continue;
+      // Building-level evidence only: ambiguous if either source has several units in that building.
+      if (r.buildingOnly) {
+        const units = (src, ref) => listings.filter((x) => x.source === src && sameBuilding(x, ref)).length;
+        if (units(l.source, g.primary) > 1 || units(g.primary.source, l) > 1) continue;
+      }
+      g.members.push({ listing: l, reason: r.reason });
       placed = true;
       break;
     }
