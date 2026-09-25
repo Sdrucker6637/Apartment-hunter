@@ -150,6 +150,12 @@ export async function run({ offline = false, dryRun = false, log = console.log, 
     st.durationMs = Date.now() - started;
   }
 
+  // Verify runs only (encrypted output): everything retrieved, before any
+  // filtering, so unseen listings can be frozen for held-out evaluation.
+  if (process.env.DUMP_RETRIEVED && !dryRun) {
+    await writeFile(process.env.DUMP_RETRIEVED, JSON.stringify({ scrapedAt, listings: fresh }) + '\n');
+  }
+
   // Photo validation on this run's listings.
   const photoResult = offline ? { checked: 0, ok: 0 } : await validatePhotos(fresh, { log });
 

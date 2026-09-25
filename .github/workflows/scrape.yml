@@ -6,8 +6,12 @@ name: Scrape listings
 # first step checks the repository's visibility; while it is PUBLIC, scheduled
 # runs stop immediately and nothing is fetched or published.
 #
-# mode=publish (scheduled default): scrape, then commit public/data/*.json to
-#   the `live-data` branch (a single commit, force-pushed). Private repos only.
+# mode=publish (scheduled default): restore the previous run's data from
+#   `live-data` (so sources that fail keep their last listings and their
+#   last-success/last-failure history), scrape every enabled source
+#   independently, sanitize + privacy-audit the output (scripts/sanitize.js),
+#   and only if the audit passes commit it to `live-data` (a single commit,
+#   force-pushed). Private repos only.
 # mode=verify (manual): scrape (+ optional screenshots), then push results
 #   ENCRYPTED with .github/verify-pubkey.pem to `verify-output`.
 #
@@ -64,9 +68,23 @@ jobs:
       - run: npm test --silent > /dev/null && echo "tests passed"
         if: steps.guard.outputs.skip != 'true'
 
+      - name: Restore previous run state (publish mode)
+        if: steps.guard.outputs.skip != 'true' && env.MODE == 'publish' && steps.guard.outputs.private == 'true'
+        run: |
+          if git fetch -q origin live-data 2>/dev/null; then
+            mkdir -p public/data
+            git show origin/live-data:listings.json > public/data/listings.json 2>/dev/null || true
+            git show origin/live-data:status.json > public/data/status.json 2>/dev/null || true
+            echo "restored previous state"
+          else
+            echo "no previous state"
+          fi
+
       - name: Scrape live sources
         if: steps.guard.outputs.skip != 'true'
-        run: node scraper/index.js
+        run: |
+          if [ "$MODE" = "verify" ]; then export DUMP_RETRIEVED="$RUNNER_TEMP/retrieved.json"; fi
+          node scraper/index.js
         env:
           REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
           REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
@@ -77,7 +95,7 @@ jobs:
         if: steps.guard.outputs.skip != 'true' && env.MODE == 'publish' && steps.guard.outputs.private == 'true'
         run: |
           set -euo pipefail
-          mkdir -p /tmp/out && cp public/data/listings.json public/data/status.json /tmp/out/
+          node scripts/sanitize.js public/data /tmp/out
           git config user.name "apartment-hunter-bot"
           git config user.email "apartment-hunter-bot@users.noreply.github.com"
           git checkout -q --orphan live-data
@@ -102,6 +120,8 @@ jobs:
           set -euo pipefail
           mkdir -p out
           cp public/data/listings.json public/data/status.json out/
+          [ -f "$RUNNER_TEMP/retrieved.json" ] && cp "$RUNNER_TEMP/retrieved.json" out/ || true
+          node scripts/sanitize.js public/data out/sanitized
           [ -d shots ] && cp -r shots out/ || true
           tar czf results.tgz -C out .
           openssl rand -out key.bin 32
