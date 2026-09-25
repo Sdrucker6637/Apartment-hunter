@@ -1,7 +1,17 @@
-// Reddit via the official Data API only. robots.txt disallows all unknown
-// bots and the User Agreement prohibits scraping without written consent, so
-// there is deliberately NO unauthenticated fallback. Requires an approved app
-// (Responsible Builder Policy): REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET.
+// Reddit via the official Data API.
+//
+// Scraping investigation, 2026-09-25 (probe/investigate.js from GitHub Actions):
+// - www.reddit.com/robots.txt and old.reddit.com/robots.txt: "User-agent: *
+//   Disallow: /" with a pointer to Reddit's Public Content Policy.
+// - User Agreement: no collecting data "by any means (automated or otherwise)
+//   except as permitted in these Terms or in a separate agreement"; crawling
+//   is permitted only per robots.txt, i.e. not at all for us.
+// - Technically: subreddit pages, .json listings, search, the infinite-scroll
+//   endpoint, old.reddit.com and post pages all returned HTTP 403 ("blocked by
+//   network security"). Only the RSS feed answered (200, 3 entries).
+// So the web pages are not a permitted collection path and there is no
+// fallback to them. The permitted route for the same data is the Data API
+// with a registered, approved app: REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET.
 
 import { parseListing } from '../parse.js';
 import { extractText } from '../extract.js';
@@ -78,7 +88,7 @@ export function postToListing(d) {
     })(),
     moveIn: field(p.moveIn, basis(p.moveIn)),
     neighborhood: field(p.neighborhood, basis(p.neighborhood)),
-    borough: field(p.borough, p.borough ? (p.neighborhood ? 'inferred' : 'explicit') : null),
+    borough: field(p.borough, p.borough ? (p.neighborhood ? 'calculated' : 'explicit') : null),
     laundry: field(p.laundry && p.laundry.replace('-', '_'), 'explicit'),
     contactUrl: author ? `https://www.reddit.com/message/compose/?to=${encodeURIComponent(author)}` : url,
     contactMethod: author ? `Reddit message to u/${author}` : 'Reply on Reddit',

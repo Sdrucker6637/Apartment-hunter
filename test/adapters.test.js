@@ -252,3 +252,69 @@ test('normalizeAddress ignores unit numbers and street-type spelling; needs a ho
   assert.equal(normalizeAddress('123 W. 45th St #2'), '123 w 45 st');
   assert.equal(normalizeAddress('Bushwick, Brooklyn'), null);
 });
+
+test('Roomi: parses the Next.js flight payload, maps structured fields, never copies lister profiles', async () => {
+  const roomi = await import('../scraper/sources/roomi.js');
+  const base = {
+    user_id: 'u1', security_deposit: null, bathrooms: 1, roommate_count: null, status: 'active', view_count: 3,
+    videos: null, roommate_min_age: 21, roommate_max_age: 35, match_count: 0, slug: null, archived_at: null, snoozed_at: null,
+    published_at: '2026-09-20T00:00:00Z', created_at: '2026-09-20T00:00:00Z', updated_at: '2026-09-21T00:00:00Z',
+    neighborhood: null, latitude: 40.6694, longitude: -73.9422, location_path: ['new york'], move_out_date: null,
+    location_slug: 'new-york', household_id: 'h1', is_boosted: false, date_activated: '2026-09-20T00:00:00Z',
+    user: { id: 'u1', status: 'active', profile: { first_name: 'Zelda', last_name: 'Q', school_name: 'Somewhere U' }, last_online_at: '2026-09-24T00:00:00Z' },
+    household: { id: 'h1', roommates: [{ first_name: 'Otto' }] },
+  };
+  const objs = [
+    { ...base, id: '11111111-1111-4111-8111-111111111111', price_per_month: 1250, room_type: 'private', property_type: 'apartment', bedrooms: 3,
+      availability_date: '2026-11-01', lease_duration: '12_months', display_location: 'Crown Heights, NY',
+      amenities: ['amenity-furnished', 'amenity-private-bath', 'amenity-003'], description: 'Sunny room. You would be living with 2 roommates.',
+      situation: 'I live here currently, and will be roommates with the new renter',
+      cover_photo_url: 'https://pub-x.r2.dev/listings/a/cover.jpg', photos: ['https://pub-x.r2.dev/listings/a/cover.jpg', 'https://pub-x.r2.dev/listings/a/2.jpg'] },
+    { ...base, id: '22222222-2222-4222-8222-222222222222', price_per_month: 3600, room_type: 'entire', property_type: 'apartment', bedrooms: 2,
+      availability_date: '2026-10-15', lease_duration: 'flexible', display_location: 'Queens, Queens County', amenities: [],
+      description: 'Whole 2 bedroom apartment.', situation: "I don't live here, and don't plan to in the future", cover_photo_url: null, photos: [] },
+    { ...base, id: '33333333-3333-4333-8333-333333333333', price_per_month: 1400, room_type: 'entire', property_type: 'apartment', bedrooms: 0,
+      availability_date: '2026-10-01', lease_duration: 'fixed', move_out_date: '2027-03-31', display_location: 'Jersey City, NJ', amenities: [],
+      description: 'Studio.', situation: 'I live here currently, but will move out before new renter moves in', cover_photo_url: null, photos: [] },
+    { ...base, id: '44444444-4444-4444-8444-444444444444', price_per_month: 900, room_type: 'private', property_type: 'house', bedrooms: 4,
+      availability_date: '2026-10-01', lease_duration: 'flexible', display_location: 'Philadelphia, PA', amenities: [], description: 'x',
+      situation: 'I live here currently, and will be roommates with the new renter', cover_photo_url: null, photos: [] },
+  ];
+  const payload = JSON.stringify(`1:["$","div",null,{"listings":${JSON.stringify(objs)}}]\n`);
+  const html = `<html><script>self.__next_f.push([1,${payload}])</script></html>`;
+  const found = roomi.listingObjects(roomi.flightText(html));
+  assert.equal(found.length, 4);
+  const [room, entire2, studio, philly] = found.map((o) => roomi.parseListing(o, { now: Date.parse('2026-09-25') }));
+
+  const r = normalizeListing(room);
+  assert.equal(r.source, 'roomi');
+  assert.equal(r.originalUrl, 'https://roomiapp.com/listings/11111111-1111-4111-8111-111111111111');
+  assert.equal(r.listingType.value, 'ROOM_IN_SHARED_APARTMENT');
+  assert.equal(r.price.share, 1250);
+  assert.equal(r.price.status, 'known');
+  assert.deepEqual(r.bedrooms, { value: 3, basis: 'structured' });
+  assert.deepEqual(r.furnished, { value: true, basis: 'structured' });
+  assert.deepEqual(r.bathroomType, { value: 'private', basis: 'structured' });
+  assert.equal(r.neighborhood.value, 'Crown Heights');
+  assert.equal(r.leaseLength.value, '12 months');
+  assert.equal(r.lister.value, 'lives_here');
+  assert.equal(r.roommates.value, 2, 'stated in the text ("living with 2 roommates")');
+  assert.equal(r.photos.length, 2, 'cover photo not duplicated');
+  assert.equal(r.laundry.value, null, 'opaque amenity ids are not guessed');
+  const blob = JSON.stringify(r);
+  for (const personal of ['Zelda', 'Somewhere U', 'Otto', 'last_online']) assert.equal(blob.includes(personal), false, `${personal} must not be copied`);
+
+  const e = normalizeListing(entire2);
+  assert.equal(e.listingType.value, 'ENTIRE_APARTMENT');
+  assert.equal(e.price.share, null, 'entire 2BR: total only, never divided');
+  assert.equal(e.price.total, 3600);
+  assert.equal(e.price.status, 'needs_confirmation');
+  assert.equal(e.furnished.value, null, 'absent amenity is not "unfurnished"');
+
+  const s = normalizeListing(studio);
+  assert.equal(s.price.share, 1400, 'whole studio: its rent is your share');
+  assert.equal(s.price.split, 'whole_unit');
+  assert.equal(s.leaseLength.value, 'Until 2027-03-31');
+  assert.equal(studio.outOfArea, false, 'Jersey City is kept');
+  assert.equal(philly.outOfArea, true);
+});

@@ -99,15 +99,16 @@ export function normalizeListing(partial, { scrapedAt = new Date().toISOString()
     genderPreference: f('genderPreference'),
     agePreference: f('agePreference'),
     postedBy: f('postedBy'),            // 'company' | 'broker' when the listing says so
+    lister: f('lister'),                // 'lives_here' | 'moving_out' | 'not_living_here' | 'moving_in' (source's own field)
 
     contact: { url: partial.contactUrl || partial.originalUrl, method: partial.contactMethod || null },
     contactEmails: partial.contactEmails || [],
     contactPhones: partial.contactPhones || [],
     address: partial.address || null,
     postType: partial.postType || 'offering',
-    manual: !!partial.manual,
     postedAt: partial.postedAt ?? null,
     postedAtApproximate: !!partial.postedAtApproximate,
+    sourceUpdatedAt: partial.sourceUpdatedAt ?? null, // when the source says the listing was last edited
     scrapedAt,
 
     photos: photos.map((p, i) => ({
@@ -117,7 +118,9 @@ export function normalizeListing(partial, { scrapedAt = new Date().toISOString()
       isPrimary: i === 0,
       source: partial.source,
       fromListing: true,
+      validation: 'unchecked',           // → 'ok' | 'failed' after scraper/photos.js
     })),
+    photoCount: photos.length,
     photoStatus: photos.length ? 'available' : (partial.photoStatus || 'none'), // available | source_only | none
   };
 }

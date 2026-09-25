@@ -30,6 +30,7 @@ export async function validatePhotos(listings, { perListing = 2, concurrency = 6
       const { l, p } = tasks[i++];
       const r = await checkPhoto(p.thumb || p.url);
       p.verified = r.ok;
+      p.validation = r.ok ? 'ok' : 'failed';
       if (!r.ok) failedByListing.set(l.id, (failedByListing.get(l.id) || 0) + 1);
     }
   }
@@ -40,8 +41,12 @@ export async function validatePhotos(listings, { perListing = 2, concurrency = 6
     const tested = l.photos.slice(0, perListing);
     checked += tested.length;
     ok += tested.filter((p) => p.verified).length;
-    // Drop photos that failed; keep untested gallery photos (the UI hides any that fail to load).
+    // Drop photos that failed; keep untested gallery photos (validation
+    // 'unchecked'; the UI hides any that fail to load in the browser).
+    l.photoValidation = { checked: tested.length, ok: tested.filter((p) => p.verified).length, found: l.photos.length };
     l.photos = l.photos.filter((p) => p.verified !== false);
+    for (const p of l.photos) delete p.verified;
+    l.photoCount = l.photos.length;
     l.photos.forEach((p, idx) => { p.isPrimary = idx === 0; });
     if (!l.photos.length) l.photoStatus = l.originalUrl ? 'source_only' : 'none';
   }

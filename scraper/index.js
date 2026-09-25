@@ -5,11 +5,11 @@
 //   7. write public/data/listings.json + public/data/status.json
 // Logs contain counts and statuses only — never listing text.
 //
-// Flags: --offline (reprocess stored + manual only), --dry-run (don't write files)
+// Flags: --offline (reprocess stored listings only), --dry-run (don't write files)
 
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { config } from './config.js';
-import { ADAPTERS, EXCLUDED } from './sources/index.js';
+import { SOURCES, ADAPTERS, EXCLUDED } from './sources/index.js';
 import { normalizeListing } from './schema.js';
 import { validatePhotos } from './photos.js';
 import { dedupe } from './dedupe.js';
@@ -20,14 +20,18 @@ export const STATUS_PATH = new URL('../public/data/status.json', import.meta.url
 
 const NETWORK_CODES = new Set(['ENOTFOUND', 'ECONNREFUSED', 'ECONNRESET', 'ETIMEDOUT', 'EAI_AGAIN', 'UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_SOCKET']);
 
+// Status for a source whose run threw. Network errors from our side are not
+// the site blocking us, so they don't claim BLOCKED.
 export function classifyError(err) {
   if (err.name === 'AuthRequiredError') return 'AUTH_REQUIRED';
-  if (err instanceof BlockedError) return 'SOURCE_BLOCKED';
-  if (err instanceof RobotsDisallowedError) return 'NO_PUBLIC_ACCESS';
+  if (err instanceof BlockedError) return 'BLOCKED';
+  if (err instanceof RobotsDisallowedError) return 'PERMISSION_REQUIRED';
   const code = err.cause?.code || err.code;
-  if (NETWORK_CODES.has(code) || err.name === 'TimeoutError' || /fetch failed/.test(err.message)) return 'ENVIRONMENT_BLOCKED';
+  if (NETWORK_CODES.has(code) || err.name === 'TimeoutError' || /fetch failed/.test(err.message)) return 'UNVERIFIED';
   return 'LIVE_WITH_LIMITATIONS';
 }
+
+export const STATUSES = ['LIVE', 'LIVE_WITH_LIMITATIONS', 'BLOCKED', 'AUTH_REQUIRED', 'PERMISSION_REQUIRED', 'NO_PUBLIC_ACCESS', 'DISABLED', 'UNVERIFIED'];
 
 async function readJson(url, fallback) {
   try { return JSON.parse(await readFile(url, 'utf8')); } catch { return fallback; }
@@ -73,33 +77,55 @@ export async function run({ offline = false, dryRun = false, log = console.log, 
   const fresh = [];
   const liveSources = new Set();
 
-  for (const adapter of ADAPTERS) {
-    const st = { id: adapter.id, name: adapter.name, kind: adapter.kind, access: adapter.access, photos: adapter.photos, count: 0, withPhotos: 0 };
-    const prev = prevStatus.sources?.find((s) => s.id === adapter.id);
-    st.lastSuccessAt = prev?.lastSuccessAt ?? null;
+  for (const src of SOURCES) {
+    const prev = prevStatus.sources?.find((s) => s.id === src.id);
+    const st = {
+      id: src.id, name: src.name, domain: src.domain, kind: src.kind, access: src.access, photos: src.photos,
+      review: src.review || null,
+      hasAdapter: !!src.run,
+      enabled: false,
+      count: 0, withPhotos: 0,
+      lastSuccessAt: prev?.lastSuccessAt ?? null,
+      lastFailureAt: prev?.lastFailureAt ?? null,
+      failureReason: prev?.failureReason ?? null,
+      nextStep: src.nextStep || null,
+    };
     statuses.push(st);
-    if (adapter.requiresEnable && !config.enabled.has(adapter.id)) {
-      Object.assign(st, { status: 'UNVERIFIED', reason: `${adapter.unverifiedReason}. Disabled until ENABLE_SOURCES includes "${adapter.id}".` });
+    if (!src.run) {
+      Object.assign(st, { status: src.defaultStatus || 'NO_PUBLIC_ACCESS', reason: src.reason || null });
       continue;
     }
-    if (offline && !adapter.manual) {
+    if (!src.enabledByDefault && !config.enabled.has(src.id)) {
+      Object.assign(st, { status: src.defaultStatus || 'DISABLED', reason: `${src.reason || 'Not enabled.'} Disabled until ENABLE_SOURCES includes "${src.id}".` });
+      continue;
+    }
+    if (src.needsCredentials?.(config)) {
+      Object.assign(st, { status: 'AUTH_REQUIRED', reason: src.authReason || 'Credentials not configured.' });
+      continue;
+    }
+    st.enabled = true;
+    if (offline) {
       Object.assign(st, { status: prev?.status ?? 'UNVERIFIED', reason: 'offline rebuild — not fetched this run', count: prev?.count ?? 0 });
       continue;
     }
     const started = Date.now();
     const notes = [];
     try {
-      const partials = await adapter.run(config, (m) => { notes.push(m); log(m); });
+      const partials = await src.run(config, (m) => { notes.push(m); log(m); });
       const listings = partials.map((p) => normalizeListing(p, { scrapedAt }));
       for (const l of listings) l.lastSeenAt = scrapedAt;
       fresh.push(...listings);
       st.count = listings.length;
-      st.status = adapter.manual ? 'MANUAL_ONLY' : listings.length ? 'LIVE' : 'LIVE_WITH_LIMITATIONS';
-      if (!adapter.manual && listings.length) {
-        liveSources.add(adapter.id);
+      // LIVE means real listings were retrieved AND parsed this run.
+      st.status = listings.length ? 'LIVE' : 'LIVE_WITH_LIMITATIONS';
+      if (listings.length) {
+        liveSources.add(src.id);
         st.lastSuccessAt = scrapedAt;
+      } else {
+        st.reason = 'Pages fetched but no listings parsed';
+        st.lastFailureAt = scrapedAt;
+        st.failureReason = st.reason;
       }
-      if (!listings.length && !adapter.manual) st.reason = 'Fetched successfully but found no listings';
       const limits = [];
       const detailFailures = notes.filter((n) => /detail failed/.test(n)).length;
       if (detailFailures) limits.push(`${detailFailures} detail page(s) failed; those listings have fewer details`);
@@ -112,7 +138,14 @@ export async function run({ offline = false, dryRun = false, log = console.log, 
     } catch (err) {
       st.status = classifyError(err);
       st.reason = err.message;
-      log(`${adapter.id}: ${st.status} — ${err.message}`);
+      st.lastFailureAt = scrapedAt;
+      st.failureReason = `${st.status}: ${err.message}`;
+      if (st.status === 'LIVE_WITH_LIMITATIONS' || st.status === 'UNVERIFIED') {
+        // A transient failure: previous listings are carried over below.
+        st.status = st.lastSuccessAt ? 'LIVE_WITH_LIMITATIONS' : 'UNVERIFIED';
+        st.reason = `This run failed (${err.message}); showing listings from the last successful run.`;
+      }
+      log(`${src.id}: ${st.status} (run failed)`);
     }
     st.durationMs = Date.now() - started;
   }
@@ -125,7 +158,7 @@ export async function run({ offline = false, dryRun = false, log = console.log, 
   const byId = new Map();
   for (const l of previous) {
     const src = l.source;
-    if (liveSources.has(src) || src === 'manual') continue; // re-fetched (or re-read) this run
+    if (liveSources.has(src)) continue; // re-fetched this run
     byId.set(l.id, { ...l, carriedOver: true });
   }
   for (const l of fresh) byId.set(l.id, l);
@@ -141,7 +174,9 @@ export async function run({ offline = false, dryRun = false, log = console.log, 
   for (const l of byId.values()) {
     if (l.postType === 'seeking') { drop('seeking', l.source); continue; }
     if (l.price.share != null && l.price.share > config.maxShare) { drop('over budget', l.source); continue; }
-    if (l.postedAt && now - Date.parse(l.postedAt) > config.maxAgeDays * 86400000) { drop('too old', l.source); continue; }
+    // Age: the later of posted and last-edited-on-source (an active listing the lister updated recently is current).
+    const dates = [l.postedAt, l.sourceUpdatedAt].filter(Boolean).map(Date.parse).filter(Number.isFinite);
+    if (dates.length && now - Math.max(...dates) > config.maxAgeDays * 86400000) { drop('too old', l.source); continue; }
     if (l.lastSeenAt && now - Date.parse(l.lastSeenAt) > config.goneAfterDays * 86400000) { drop('no longer listed', l.source); continue; }
     kept.push(l);
   }
@@ -190,11 +225,12 @@ export function logSummary(status, log = console.log) {
   const t = status.totals;
   for (const st of status.sources) {
     const q = st.quality;
-    log(`${st.name}: ${st.inDataset ?? 0} listings (${st.retrieved ?? 0} retrieved) · status ${st.status}`
+    if (!st.enabled) { log(`${st.name}: not run · status ${st.status}`); continue; }
+    log(`${st.name}: ${st.inDataset ?? 0} listings (${st.retrieved ?? 0} retrieved, ${Object.values(st.discarded || {}).reduce((a, b) => a + b, 0)} discarded) · status ${st.status}`
       + (q ? ` · photos ${st.withPhotos}/${st.inDataset} · share known ${q.coverage.yourShare}% · needs confirmation ${q.needsConfirmation}` : ''));
   }
   log(`Total: ${t.listings} listings · photos ${t.withPhotos}/${t.listings} · photo checks ${t.photosLoaded}/${t.photosChecked} · duplicates merged ${t.duplicatesMerged}`);
-  log(`Errors: ${status.sources.filter((s) => ['SOURCE_BLOCKED', 'ENVIRONMENT_BLOCKED', 'LIVE_WITH_LIMITATIONS'].includes(s.status) && !s.inDataset).length}`);
+  log(`Errors: ${status.sources.filter((s) => s.lastFailureAt === status.generatedAt).length}`);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
