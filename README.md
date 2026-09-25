@@ -28,25 +28,42 @@ Every extracted fact records **how we know it**:
 
 ## Sources
 
-Each source was evaluated against its robots.txt and terms of use, and tested
-live from GitHub Actions on 2026-09-25 (scripts are in `probe/`).
+A scraping-first aggregator: **website → scraper → extractor → normalized
+listing → dedupe → output → UI**. Every source was investigated by actually
+requesting its listing pages from GitHub Actions (`probe/investigate.js`,
+2026-09-25): one plain request per page type with an honest bot User-Agent,
+no login, no cookies, no retries, nothing that defeats a block. The site's
+**Sources** panel shows each source's full investigation record: pages tested,
+robots.txt, terms, blockers and the next step.
 
-| Source | Status | How | Photos |
-| --- | --- | --- | --- |
-| **June Homes** | ✅ Live | Public pages with schema.org JSON-LD. robots.txt allows the crawl, and the terms have no scraping clause. | Yes, hotlinkable |
-| **Roomster** | ✅ Live | Public pages with JSON-LD. robots.txt allows the crawl, and the terms have no scraping clause. Messaging needs a Roomster account. | Yes, hotlinkable |
-| **Reddit** (r/RoommatesNYC, r/NYCapartments) | 🔑 Needs credentials | Official Data API only. Scraping reddit.com is prohibited, and new apps need Reddit's approval. | Post images, when attached |
-| **Diggz**, **Roomies.com** | ⏸ Disabled | Their public pages have good structured data, but their terms pages block automated readers, so permission can't be confirmed. You can enable them with `ENABLE_SOURCES=diggz,roomies` after reading their terms. | Yes |
-| **Facebook groups** | ✋ Manual only | robots.txt disallows everything, and Meta's terms require written permission. Paste posts in with **+ Add a post** when running locally. | Only photos you add |
-| Craigslist, SpareRoom, Listings Project, StreetEasy, Roomi, Leasebreak, PadMapper, Zumper, Bungalow | ⛔ Not permitted | Their terms explicitly prohibit scraping (the exact clauses are in `scraper/sources/index.js`) | – |
-| RentHop, Outpost Club, HotPads | ⛔ Blocked | Anti-bot challenge (HTTP 403) on every page | – |
+| Source | Status | What happened when we tried to scrape it |
+| --- | --- | --- |
+| **June Homes** | ✅ LIVE | Neighborhood index pages and room pages fetched and parsed (schema.org data + photos). robots.txt allows this, and the terms have no scraping clause. |
+| **Roomster** | ✅ LIVE | Index and listing pages fetched and parsed (JSON-LD + gallery). robots.txt allows this, and the terms have no scraping clause. |
+| **Roomi** (roomiapp.com) | ⛔ PERMISSION_REQUIRED | Technically works: the NYC search page is server-rendered with about 90 structured listings (price, room type, bedrooms, move-in, lease, map pin, photos). The adapter parses them. robots.txt allows the search page and disallows `/listings/`. But the terms prohibit "webcrawler, spidering or other automated means to access, copy, index, process and/or store any Content … other than as expressly authorized by us". The adapter stays disabled until Roomi authorizes it (`ENABLE_SOURCES=roomi`). |
+| **Reddit** | 🔑 AUTH_REQUIRED | robots.txt is `Disallow: /`. Subreddit pages, `.json`, search, infinite scroll, old.reddit and post pages all returned **HTTP 403** ("blocked by network security"). Only the RSS feed answered, with 3 items. The User Agreement prohibits scraping without written consent. The permitted route is the official Data API. That adapter is built and waits for `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET`. |
+| **Facebook** | 🔒 AUTH_REQUIRED | 7 public NYC housing groups and Marketplace were tested: every URL (www, m., mbasic.) **redirects to the login page**. robots.txt disallows everything without written permission. The Graph API needs an app, and there is no Groups or Marketplace read API. There is no legitimate automated path. |
+| **Diggz**, **Roomies.com** | ⏸ UNVERIFIED | Pages parse, but the terms pages are behind a Cloudflare challenge. Enable with `ENABLE_SOURCES` only after reading their terms. |
+| Craigslist, SpareRoom, Listings Project, StreetEasy, Leasebreak, PadMapper, Zumper, Bungalow, Nooklyn, Coliving.com, HousingAnywhere, PadSplit, Kopa | ⛔ PERMISSION_REQUIRED | Terms or robots.txt prohibit automated access (the exact clauses are in `scraper/sources/index.js`) |
+| RentHop, Outpost Club, HotPads, Bedly, Furnished Finder | 🚫 BLOCKED | Anti-bot challenge (HTTP 403) |
 
-The scraper always identifies itself honestly
-(`ApartmentHunterBot/0.2 (+repo URL)`). It checks robots.txt before every
-request and waits at least 1.5 s between requests to the same site. It never
-tries to get around a block. On both live sites, robots.txt forbids the
-paginated URLs, so the crawler walks each site's per-neighborhood pages
-instead.
+Each source records separately:
+- `technicallyAccessible`
+- `scrapingTested`
+- `robots`
+- `termsReviewed`
+- `automatedAccessPermitted`
+- `enabled`
+- `lastSuccessAt`
+- `lastFailureAt`
+- `failureReason`
+
+Status is one of `LIVE`, `LIVE_WITH_LIMITATIONS`, `BLOCKED`, `AUTH_REQUIRED`, `PERMISSION_REQUIRED`, `NO_PUBLIC_ACCESS`, `DISABLED` or `UNVERIFIED`. A source is `LIVE` only in a run where it actually retrieved and parsed real listings.
+
+The scraper always identifies itself honestly (`ApartmentHunterBot/0.2 (+repo URL)`):
+- It checks robots.txt before every request.
+- It waits at least 1.5 s between requests to the same site.
+- It stops requesting from a site for the rest of the run once that site blocks it.
 
 ## Quick start (local)
 
@@ -56,9 +73,6 @@ Requires Node 20 or newer. No dependencies are needed.
 npm run scrape   # fetch every enabled source → public/data/{listings,status}.json
 npm start        # http://localhost:3000
 ```
-
-Running it locally also enables **+ Add a post**, which saves pasted posts to
-`data/manual.json`.
 
 Reddit needs an approved Reddit Data API app. Set `REDDIT_CLIENT_ID` and
 `REDDIT_CLIENT_SECRET`.
@@ -72,7 +86,7 @@ scraper/extract.js          the extraction layer: text → fields (deterministic
                             any replacement, e.g. a model, must keep this interface)
 scraper/parse.js            the rules behind it (price, listing type, roommates, dates, laundry…)
 scraper/photos.js           checks photos load for an anonymous visitor
-scraper/dedupe.js           cross-source duplicates (URL, shared photo, contact, text+price)
+scraper/dedupe.js           cross-source duplicates (see below)
 scraper/index.js            pipeline + per-source status → public/data/*.json
 public/                     static site (no build step)
 probe/                      source feasibility probes (robots, terms, live fetch)
@@ -86,6 +100,18 @@ $1,400, labeled *Stated*.
 Every listing carries a price model: *your share*, *total apartment*, how the
 split is known (whole unit / even split stated / room price stated) and a
 status (`known`, `needs_confirmation`, `not_listed`).
+
+**Cross-source duplicates.** Two listings merge into one card, which keeps
+every original URL ("Found on 2 sources"), in either of these cases:
+- They share an identity signal: the same URL or the same photo.
+- They have at least 4 points of evidence, and some of it is specific to the
+  listing: description similarity, the same contact, the same street address,
+  or map pins within 120 m.
+
+Generic facts never merge listings by themselves, however many agree: price,
+bedrooms, neighborhood and move-in date. Any stated conflict vetoes a merge:
+different bedrooms, room vs entire apartment, price, borough, or move-in
+dates more than 45 days apart.
 
 **Adding a source.** Write an adapter in `scraper/sources/` that exports
 `meta` (id, label, `uniqueIds`, `requiresEnable`…) and `fetch()` returning
@@ -101,8 +127,15 @@ It's never a stock photo.
 
 `.github/workflows/scrape.yml` runs every 3 hours, but its first step checks
 whether the repository is private. **While the repo is public, scheduled runs
-do nothing.** Once it is private, each run publishes `listings.json` and
-`status.json` to the `live-data` branch (one force-pushed commit, no history).
+do nothing.** Once it is private, each run:
+1. restores the previous run's data from the `live-data` branch;
+2. scrapes each enabled source independently, so one blocked source never
+   stops the others;
+3. sanitizes the output: emails and phone numbers are removed from listing
+   text, and street addresses are dropped except for business listings;
+4. runs a privacy audit (`scripts/sanitize.js`);
+5. only if the audit passes, publishes `listings.json` and `status.json` to
+   `live-data` as one force-pushed commit with no history.
 
 Workflow logs contain counts and statuses only, never listing text, names,
 phone numbers, emails or HTML:
@@ -138,7 +171,14 @@ the live JSON-LD shapes. Passing tests show that the parsing logic works. They
 don't show that a source is reachable. Live retrieval is verified by the
 workflow above.
 
-`node scripts/eval-extraction.js <gold.json> --details` scores the extraction
-layer against hand-labeled real listings (per field: found, wrong/unsupported,
-missed). The labeled set contains real listing text, so it is kept out of
-the repository until the repository is private.
+**Held-out extraction accuracy.** `scripts/holdout.js` measures the
+extractor on listings it was never tuned on:
+1. **freeze** unseen listings from a verify run. This records a fingerprint
+   of the extractor code.
+2. **label** what each listing states.
+3. **score** precision, recall and the unsupported-value rate per field
+   before any rule changes. If the extractor changed since the freeze, the
+   scorer says the result is not held-out.
+
+`scripts/eval-extraction.js` scores the (tuning) labeled set. Labeled sets
+contain real listing text and stay out of the repository.
