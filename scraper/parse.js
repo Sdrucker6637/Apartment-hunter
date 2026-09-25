@@ -266,36 +266,60 @@ export function findContacts(text) {
 
 // ---------- putting it together ----------
 
-// Picks the monthly share for the room you'd take from the price candidates.
-function pickSharePrice(prices, { kind, bedrooms, roomsAvailable }) {
-  if (!prices.length) return { price: null, priceMax: null, totalRent: null, priceSource: null };
-  const perPerson = prices.filter((p) => p.perPerson);
-  const totals = prices.filter((p) => p.total);
-  const plain = prices.filter((p) => !p.perPerson && !p.total);
+// Decides what YOU would pay. Never divides a total by bedrooms unless the
+// post says the rent is split evenly. Returns
+//   { price, priceMax, totalRent, priceType, priceBasis }
+// priceType:  'room_share' | 'whole_unit' | 'unknown'
+// priceBasis: 'explicit'   — stated as your/per-person/room price
+//             'likely'     — a room post quoting one plausible amount
+//             'calculated' — total ÷ people, because an even split is stated
+//             null         — unknown / needs confirmation
+const EVEN_SPLIT_RE = /split (?:(?:it|the rent|rent|everything)\s+)?(?:evenly|equally|down the middle|\d+ ways|(?:two|three|four) ways)|divided (?:evenly|equally)|(?:even|equal) split|split 50\/50/i;
+const SPLIT_WAYS_RE = /split (\d|two|three|four) ways/i;
+const ROOM_PRICE_CONTEXT = /(?:room|bedroom)(?:\s+[a-z0-9]{1,2}\b)?\s+(?:is\s+|available\s+|for rent\s+|goes\s+)?(?:for|at|is|:|-|–|—)?\s*(?:only\s+|just\s+)?$|(?:private|master|available|open|your|the|furnished|sunny|large|small|big)\s+(?:room|bedroom)[^.$\n]{0,25}$/i;
+const LIKELY_SHARE_MAX = 2200; // a single plain amount above this in a multi-bedroom post is probably the whole unit
+
+function pickSharePrice(prices, text, { kind, bedrooms, roomsAvailable }) {
+  const none = { price: null, priceMax: null, totalRent: null, priceType: 'unknown', priceBasis: null };
+  if (!prices.length) return none;
+  const perPerson = prices.filter((p) => p.perPerson || ROOM_PRICE_CONTEXT.test(text.slice(Math.max(0, p.index - 40), p.index)));
+  const totals = prices.filter((p) => p.total && !perPerson.includes(p));
+  const plain = prices.filter((p) => !perPerson.includes(p) && !totals.includes(p));
+  const totalRent = totals[0]?.amount ?? null;
+
   if (perPerson.length) {
     const amts = perPerson.map((p) => p.amount);
-    return { price: Math.min(...amts), priceMax: Math.max(...amts), totalRent: totals[0]?.amount ?? null, priceSource: 'stated' };
+    return { price: Math.min(...amts), priceMax: Math.max(...amts), totalRent, priceType: 'room_share', priceBasis: 'explicit' };
   }
-  const total = totals[0]?.amount ?? (kind === 'apartment' ? plain[0]?.amount : null);
-  if (total != null && (kind === 'apartment' || totals.length)) {
-    const split = bedrooms && bedrooms > 0 ? bedrooms : null;
-    if (split) {
-      const share = Math.round(total / split);
-      return { price: share, priceMax: share, totalRent: total, priceSource: 'split' };
+
+  const wholeAmount = totalRent ?? (kind === 'apartment' ? plain[0]?.amount : null)
+    ?? (plain.length === 1 && bedrooms >= 2 && plain[0].amount > LIKELY_SHARE_MAX ? plain[0].amount : null);
+  if (wholeAmount != null) {
+    if (EVEN_SPLIT_RE.test(text)) {
+      const ways = SPLIT_WAYS_RE.exec(text);
+      const people = ways ? ({ two: 2, three: 3, four: 4 }[ways[1].toLowerCase()] ?? +ways[1]) : bedrooms;
+      if (people >= 2) {
+        const share = Math.round(wholeAmount / people);
+        return { price: share, priceMax: share, totalRent: wholeAmount, priceType: 'room_share', priceBasis: 'calculated' };
+      }
     }
-    if (bedrooms === 0 || bedrooms == null) {
-      // Studio or unknown size: the whole rent is your share.
-      return { price: total, priceMax: total, totalRent: total, priceSource: 'stated' };
+    if (bedrooms === 0 || (bedrooms === 1 && kind === 'apartment')) {
+      // A studio/1BR taken over whole: the whole rent is what you'd pay.
+      return { price: wholeAmount, priceMax: wholeAmount, totalRent: wholeAmount, priceType: 'whole_unit', priceBasis: 'explicit' };
     }
+    return { ...none, totalRent: wholeAmount };
   }
-  const amts = (plain.length ? plain : prices).map((p) => p.amount);
-  // Posts listing several rooms ("Room A $1,400 / Room B $1,650") give a range.
+
+  const amts = plain.map((p) => p.amount);
+  if (!amts.length) return none;
+  // Several prices in a room post ("Room A $1,400 / Room B $1,650") read as a range.
   const useRange = (roomsAvailable ?? 1) > 1 || amts.length > 1;
   return {
     price: Math.min(...amts),
     priceMax: useRange ? Math.max(...amts) : Math.min(...amts),
     totalRent: null,
-    priceSource: 'stated',
+    priceType: 'room_share',
+    priceBasis: 'likely',
   };
 }
 
@@ -305,12 +329,17 @@ export function parseListing({ title = '', body = '', flair = '', hints = {}, po
   const kind = hints.kind || listingKind(text);
   const bedrooms = hints.bedrooms ?? findBedrooms(title) ?? findBedrooms(body);
   const roomsAvailable = findRoomsAvailable(text);
-  const prices = findPrices(title).concat(findPrices(body));
+  const prices = findPrices(text);
   // A title price is usually the headline rent; if present, don't let body prices widen the range much.
   const titlePrices = findPrices(title);
-  const priceInfo = pickSharePrice(titlePrices.length ? titlePrices : prices, { kind, bedrooms, roomsAvailable });
+  const priceInfo = pickSharePrice(titlePrices.length ? titlePrices : prices, titlePrices.length ? title : text, { kind, bedrooms, roomsAvailable });
+  if (priceInfo.price == null && titlePrices.length && prices.length > titlePrices.length) {
+    // The title only gave a total; the body may still state the room price.
+    const fromBody = pickSharePrice(findPrices(body), body, { kind, bedrooms, roomsAvailable });
+    if (fromBody.price != null) Object.assign(priceInfo, fromBody, { totalRent: priceInfo.totalRent ?? fromBody.totalRent });
+  }
   if (hints.price != null && priceInfo.price == null) {
-    Object.assign(priceInfo, { price: hints.price, priceMax: hints.price, priceSource: 'stated' });
+    Object.assign(priceInfo, { price: hints.price, priceMax: hints.price, priceType: 'unknown', priceBasis: 'likely' });
   }
   const { roommates, roommatesSource } = findRoommates(text, { bedrooms, roomsAvailable, kind });
   const location = findNeighborhood(hints.neighborhood, title, body);

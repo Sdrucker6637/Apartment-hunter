@@ -39,18 +39,23 @@ test('roommates estimated from bedrooms when not stated', () => {
   assert.equal(l.moveIn.date, '2026-10-15');
 });
 
-test('whole-apartment lease takeover splits rent by bedrooms', () => {
-  const l = parseListing({
-    title: 'Lease takeover: 2BR in Crown Heights, $3,000 total',
-    body: 'Taking over our lease starting December 1st. Washer/dryer in unit. No broker fee. $3,000 deposit.',
-    postedAt: REF,
-  });
-  assert.equal(l.kind, 'apartment');
-  assert.equal(l.totalRent, 3000);
-  assert.equal(l.price, 1500);
-  assert.equal(l.priceSource, 'split');
-  assert.equal(l.roommates, 0);
-  assert.equal(l.moveIn.date, '2026-12-01');
+test('price: total rent is never divided by bedrooms unless an even split is stated', () => {
+  const cases = [
+    // [title, body, expected price, totalRent, priceType, priceBasis]
+    ['$3,000 2BR, looking for someone to take the second room', '', null, 3000, 'unknown', null],
+    ['2BR $3,000 total, your room is $1,400', '', 1400, 3000, 'room_share', 'explicit'],
+    ['2BR apartment $3,000 total, split evenly', '', 1500, 3000, 'room_share', 'calculated'],
+    ['Looking for roommate, 2BR in LES', 'Rent is $2,900. We split it evenly.', 1450, 2900, 'room_share', 'calculated'],
+    ['3BR, $4,200/mo, split three ways', '', 1400, 4200, 'room_share', 'calculated'],
+    ['Room available for $1,400', '', 1400, null, 'room_share', 'explicit'],
+    ['Lease takeover: 2BR in Crown Heights, $3,000 total', 'Washer/dryer in unit. $3,000 deposit.', null, 3000, 'unknown', null],
+    ['Studio lease takeover $1,650', '', 1650, 1650, 'whole_unit', 'explicit'],
+    ['Room in 3BR Bed-Stuy - $1,350 - Oct 15', '', 1350, null, 'room_share', 'likely'],
+  ];
+  for (const [title, body, price, totalRent, priceType, priceBasis] of cases) {
+    const l = parseListing({ title, body, postedAt: REF });
+    assert.deepEqual([l.price, l.totalRent, l.priceType, l.priceBasis], [price, totalRent, priceType, priceBasis], title);
+  }
 });
 
 test('multiple rooms give a price range', () => {
