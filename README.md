@@ -1,111 +1,115 @@
 # Apartment Hunter
 
-A site for finding NYC room shares. It collects posts from roommate subreddits,
-Craigslist, and Facebook posts you paste in. It keeps **1–3 bedroom** places
-where **your share is $1,700/mo or less**, and shows how many roommates you'd
-be joining.
+One search across NYC roommate and room-rental sites. It collects real
+listings from each source that legitimately permits it, extracts what a
+roommate-seeker needs, removes duplicates, and shows everything in one
+photo-first interface. The fields it extracts are:
 
-For each listing you get your monthly share, bedrooms, the number of roommates
-already living there, the move-in date, the neighborhood, and washer/dryer
-details. Each one links to the original post and to a way to contact the
-poster: a prefilled Reddit DM, the Craigslist reply page, or the Facebook post.
+- your monthly share
+- where the place is
+- who you'd live with
+- when you can move in
+- laundry
+- whether it's furnished
+- photos
 
-You can filter by neighborhood, washer/dryer (in unit / in building),
-bedrooms, number of roommates, max share, move-in date, source, and keywords.
-You can sort by price, number of roommates, newest post, or soonest move-in.
-Stars (save) and ✕ (hide) are remembered in your browser.
+Every extracted fact records **how we know it**:
 
-## Quick start
-
-Requires Node 20+. There are no dependencies to install.
-
-```bash
-npm run scrape   # fetch Reddit + Craigslist, write public/data/listings.json
-npm start        # http://localhost:3000
-```
-
-When you run it locally, the site has two extra buttons:
-
-- **Refresh now**: re-scrapes every source.
-- **+ Add a listing**: paste a Facebook post (or anything else) with its link.
-  The details are pulled out automatically, and you can correct any field.
-  Entries are saved in `data/manual.json`.
+| Label | Meaning |
+| --- | --- |
+| **From listing** | Taken from the source's own structured data |
+| **Stated** | Written in the listing text |
+| **Calculated** | Derived from stated facts. For example, total rent ÷ people, but only when the post says the rent is split evenly. |
+| **Estimated** | Apartment Hunter's inference. For example, roommates = bedrooms − 1. |
+| **Likely your share** | The post gives one price but doesn't say it's per person |
+| **Needs confirmation** | Only a total rent is known, so your share is unknown |
 
 ## Sources
 
-| Source | How | Notes |
-| --- | --- | --- |
-| Reddit: r/RoommatesNYC, r/NYCapartments | Reddit JSON API, newest 300 posts per sub per run | "Looking for a room" posts are filtered out using flair and title. |
-| Craigslist NYC: rooms & shares, sublets | Search RSS feed | Best effort. Craigslist often blocks or changes this feed, and failures are skipped. |
-| Facebook groups | **Pasted in by hand** | See below. |
+Each source was evaluated against its robots.txt and terms of use, and tested
+live from GitHub Actions on 2026-09-25 (scripts are in `probe/`).
 
-**Why Facebook isn't scraped automatically:** Facebook groups can only be seen
-while logged in, and Facebook's terms forbid automated collection. Accounts
-that scrape tend to get locked. The paste-in form is the safe route.
+| Source | Status | How | Photos |
+| --- | --- | --- | --- |
+| **June Homes** | ✅ Live | Public pages with schema.org JSON-LD. robots.txt allows the crawl, and the terms have no scraping clause. | Yes, hotlinkable |
+| **Roomster** | ✅ Live | Public pages with JSON-LD. robots.txt allows the crawl, and the terms have no scraping clause. Messaging needs a Roomster account. | Yes, hotlinkable |
+| **Reddit** (r/RoommatesNYC, r/NYCapartments) | 🔑 Needs credentials | Official Data API only. Scraping reddit.com is prohibited, and new apps need Reddit's approval. | Post images, when attached |
+| **Diggz**, **Roomies.com** | ⏸ Disabled | Their public pages have good structured data, but their terms pages block automated readers, so permission can't be confirmed. You can enable them with `ENABLE_SOURCES=diggz,roomies` after reading their terms. | Yes |
+| **Facebook groups** | ✋ Manual only | robots.txt disallows everything, and Meta's terms require written permission. Paste posts in with **+ Add a post** when running locally. | Only photos you add |
+| Craigslist, SpareRoom, Listings Project, StreetEasy, Roomi, Leasebreak, PadMapper, Zumper, Bungalow | ⛔ Not permitted | Their terms explicitly prohibit scraping (the exact clauses are in `scraper/sources/index.js`) | – |
+| RentHop, Outpost Club, HotPads | ⛔ Blocked | Anti-bot challenge (HTTP 403) on every page | – |
 
-Change the subreddits with `SUBREDDITS=RoommatesNYC,NYCapartments,SomeOtherSub`.
+The scraper always identifies itself honestly
+(`ApartmentHunterBot/0.2 (+repo URL)`). It checks robots.txt before every
+request and waits at least 1.5 s between requests to the same site. It never
+tries to get around a block. On both live sites, robots.txt forbids the
+paginated URLs, so the crawler walks each site's per-neighborhood pages
+instead.
 
-### Reddit API credentials (recommended when hosted)
+## Quick start (local)
 
-Reddit often blocks requests from cloud servers that aren't signed in, which
-includes GitHub Actions. Setting up a free "script" app takes about 2 minutes:
-
-1. Go to https://www.reddit.com/prefs/apps, then **create another app…**,
-   choose type **script**, and use `http://localhost` as the redirect URI.
-2. Set `REDDIT_CLIENT_ID` (the string under the app name) and
-   `REDDIT_CLIENT_SECRET`. Use env vars locally, or add them as repository
-   secrets for the GitHub Action.
-
-## Hosting (free, auto-updating)
-
-`.github/workflows/scrape.yml` runs every 3 hours. It runs the tests, scrapes,
-commits the new `listings.json`, and publishes `public/` to GitHub Pages.
-
-1. Merge to `main`.
-2. Go to **Settings → Pages → Build and deployment → Source: GitHub Actions**.
-3. Add the Reddit secrets (above).
-4. Optional: in **Settings → Variables → Actions**, set `MAX_SHARE` or
-   `SUBREDDITS`.
-
-The hosted site is read-only. To add Facebook posts, run it locally and push
-`data/manual.json`.
-
-## Configuration
-
-Set these as environment variables. Defaults are in `scraper/config.js`.
-
-| Var | Default | |
-| --- | --- | --- |
-| `MAX_SHARE` | 1700 | Max monthly share |
-| `MIN_BEDROOMS` / `MAX_BEDROOMS` | 1 / 3 | Bedrooms in the apartment |
-| `MAX_AGE_DAYS` | 30 | Listings older than this drop off |
-| `SUBREDDITS` | RoommatesNYC,NYCapartments | Comma-separated |
-| `REDDIT_PAGES` | 3 | Pages of 100 posts per subreddit per run |
-| `CRAIGSLIST` | on | Set to `off` to skip |
-
-## How the details are pulled out of posts
-
-Posts are free text, so `scraper/parse.js` uses pattern matching:
-
-- **Your share:** the dollar amounts in the post, skipping deposits, broker
-  fees, utilities, and income requirements. If several rooms have different
-  prices, the card shows a range. For whole-apartment posts (lease takeovers),
-  the total rent is split by the number of bedrooms.
-- **Roommates you'd join:** taken from phrases like "living with 2 roommates",
-  "join two others", or "live with me". If the post doesn't say, it's
-  estimated as bedrooms minus the rooms on offer, and the card shows *(est.)*.
-- **Move-in:** dates like "Nov 1", "11/1", "mid-October", or "ASAP".
-- **Neighborhood:** about 100 NYC neighborhoods plus common abbreviations
-  (LES, UWS, Bed-Stuy, LIC, PLG…), grouped by borough.
-- **Laundry:** in-unit, in-building, or none.
-
-Listings missing a price or bedroom count are hidden by default. Tick
-*Include listings missing price or bedrooms* to see them. If something was
-read wrong, re-add the post with corrections.
-
-## Development
+Requires Node 20 or newer. No dependencies are needed.
 
 ```bash
-npm test         # parser + pipeline tests
-npm run rebuild  # reprocess stored + manual listings without hitting the network
+npm run scrape   # fetch every enabled source → public/data/{listings,status}.json
+npm start        # http://localhost:3000
 ```
+
+Running it locally also enables **+ Add a post**, which saves pasted posts to
+`data/manual.json`.
+
+Reddit needs an approved Reddit Data API app. Set `REDDIT_CLIENT_ID` and
+`REDDIT_CLIENT_SECRET`.
+
+## Architecture
+
+```
+scraper/sources/<site>.js   one adapter per source → partial listing
+scraper/schema.js           normalized listing: every field is { value, basis }
+scraper/parse.js            free-text extractor (price rules, roommates, dates, laundry…)
+scraper/photos.js           checks photos load for an anonymous visitor
+scraper/dedupe.js           cross-source duplicates (URL, shared photo, contact, text+price)
+scraper/index.js            pipeline + per-source status → public/data/*.json
+public/                     static site (no build step)
+probe/                      source feasibility probes (robots, terms, live fetch)
+```
+
+**Price rules.** Total rent is never divided by bedrooms. "$3,000 2BR,
+looking for a roommate" gives your share as *unknown*. "$3,000 total, split
+evenly" gives $1,500, labeled *Calculated*. "Room available for $1,400" gives
+$1,400, labeled *Stated*.
+
+**Photos.** The site links to each source's own image URL and never re-hosts
+images. The pipeline drops photos that don't load anonymously. In the browser,
+a photo that fails to load is replaced with a drawn placeholder that says so.
+It's never a stock photo.
+
+## Verifying the live pipeline yourself
+
+1. Go to **Actions → Scrape listings → Run workflow**.
+2. The log shows only counts and statuses for each source (no listing text):
+   ```
+   junehomes  LIVE   fetched=95 inDataset=… withPhotos=… coverage={…}
+   ```
+3. Results are encrypted before leaving the runner. This repo is public, and
+   the listings contain posters' personal text, so only ciphertext is pushed
+   to the `verify-output` branch. The private key isn't in the repo.
+
+Or run `npm run scrape` on your own machine and open `public/data/status.json`.
+
+## UI development without live data
+
+```bash
+node scripts/make-sample.js && DATA_DIR=sample npm start
+```
+
+This serves clearly labeled **SAMPLE** data: a striped banner, SAMPLE tags,
+and photos that literally read "SAMPLE PHOTO". Sample data is never written
+to `public/data`.
+
+## Tests
+
+`npm test` runs the parser and adapter tests. These use fixtures that mirror
+the live JSON-LD shapes. Passing tests show that the parsing logic works. They
+don't show that a source is reachable. Live retrieval is verified by the
+workflow above.
