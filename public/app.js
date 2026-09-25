@@ -212,7 +212,7 @@ function card(l) {
       </ul>
       ${tags ? `<div class="tags">${tags}</div>` : ''}
       <div class="card-foot">
-        <span>${names.length > 1 ? `Found on ${esc(names.join(' · '))}` : `From ${esc(names[0])}`}${l.postedAt ? ` · ${l.postedAtApproximate ? '~' : ''}${esc(ago(l.postedAt))}` : ''}</span>
+        <span>${names.length > 1 ? `<strong>Found on ${names.length} sources</strong>: ${esc(names.join(' · '))}` : `From ${esc(names[0])}`}${l.postedAt ? ` · ${l.postedAtApproximate ? '~' : ''}${esc(ago(l.postedAt))}` : ''}</span>
         <span class="spacer"></span>
         <button type="button" class="hide-btn" data-act="hide">${hidden ? 'Unhide' : 'Hide'}</button>
       </div>
@@ -365,7 +365,7 @@ function renderSources() {
   const rows = st.map((s) => {
     const live = (s.inDataset || 0) > 0;
     const on = live && (!selected || selected.includes(s.id));
-    const note = live ? `${s.inDataset}` : ({ AUTH_REQUIRED: 'not connected', UNVERIFIED: 'off — terms unverified', SOURCE_BLOCKED: 'blocked', NO_PUBLIC_ACCESS: 'not permitted' }[s.status] || 'no listings');
+    const note = live ? `${s.inDataset}` : (SOURCE_NOTE[s.status] || 'no listings');
     return `<label class="src-check${live ? '' : ' off'}"><input type="checkbox" data-src="${esc(s.id)}" ${on ? 'checked' : ''} ${live ? '' : 'disabled'}><span>${esc(s.name)}</span><span class="n">${esc(note)}</span></label>`;
   });
   $('#sources').innerHTML = rows.join('') + '<button type="button" class="link" data-open-status>Why these sources?</button>';
@@ -501,6 +501,7 @@ function openDetail(id, { push = true } = {}) {
     F('Utilities included', yesNo(l.utilitiesIncluded.value), l.utilitiesIncluded.basis),
     F('Pets', l.pets.value ? esc(l.pets.value) : null, l.pets.basis),
     F('Roommate preference', l.genderPreference.value ? esc(l.genderPreference.value) : null, l.genderPreference.basis),
+    F('Person who listed it', l.lister?.value ? LISTER[l.lister.value] : null, l.lister?.basis),
   ].join('');
 
   const p = l.price;
@@ -541,7 +542,7 @@ function openDetail(id, { push = true } = {}) {
           <button type="button" class="btn" data-act="save" data-id="${esc(l.id)}">${state.saved.has(l.id) ? '♥ Saved' : '♡ Save'}</button>
         </div>
         <div class="d-sources">
-          <h3>Original listing${l.sources.length > 1 ? 's' : ''}</h3>
+          <h3>${new Set(l.sources.map((x) => x.source)).size > 1 ? `Found on ${new Set(l.sources.map((x) => x.source)).size} sources` : 'Original listing'}</h3>
           ${l.sources.map((s) => (safeUrl(s.url) ? `<a href="${esc(s.url)}" target="_blank" rel="noopener noreferrer"><span><strong>View on ${esc(s.label)}</strong><small>${esc(new URL(s.url).hostname.replace(/^www\./, ''))}</small></span><span>→</span></a>` : `<div class="d-src-plain">${esc(s.label)}</div>`)).join('')}
           ${l.postedBy.value ? `<p class="muted small">This listing says it's posted by a ${l.postedBy.value === 'broker' ? 'real-estate broker' : 'company'}.</p>` : ''}
         </div>
@@ -580,9 +581,16 @@ function lightbox(i) {
 
 // ---------- status & quality ----------
 const STATUS_LABEL = {
-  LIVE: 'LIVE', LIVE_WITH_LIMITATIONS: 'LIVE · LIMITED', AUTH_REQUIRED: 'NEEDS CREDENTIALS', ENVIRONMENT_BLOCKED: 'UNREACHABLE',
-  SOURCE_BLOCKED: 'BLOCKED', NO_PUBLIC_ACCESS: 'NOT PERMITTED', MANUAL_ONLY: 'MANUAL ONLY', UNVERIFIED: 'OFF · TERMS UNVERIFIED',
+  LIVE: 'LIVE', LIVE_WITH_LIMITATIONS: 'LIVE · LIMITED', BLOCKED: 'BLOCKED', AUTH_REQUIRED: 'LOGIN / CREDENTIALS REQUIRED',
+  PERMISSION_REQUIRED: 'PERMISSION REQUIRED', NO_PUBLIC_ACCESS: 'NO PUBLIC ACCESS', DISABLED: 'DISABLED', UNVERIFIED: 'UNVERIFIED',
 };
+const LISTER = { lives_here: 'Lives there and stays', moving_out: 'Lives there, moving out', not_living_here: "Doesn't live there", moving_in: 'Moving in soon' };
+const SOURCE_NOTE = {
+  AUTH_REQUIRED: 'needs login / API key', PERMISSION_REQUIRED: 'needs site permission', BLOCKED: 'blocked',
+  NO_PUBLIC_ACCESS: 'no public access', DISABLED: 'disabled', UNVERIFIED: 'off — terms unverified',
+};
+const PERMITTED = { yes: 'Permitted', no: 'Not permitted', unclear: 'Unclear', 'api-only': 'Only via official API' };
+const yesNo = (v) => (v === true ? 'Yes' : v === false ? 'No' : v === 'partial' ? 'Partly' : '—');
 function renderFreshness() {
   const st = state.status;
   const dot = $('#freshness-dot');
@@ -617,9 +625,26 @@ function renderStatus() {
       <span class="src-state ${esc(s.status)}">${esc(STATUS_LABEL[s.status] || s.status)}</span>
       <div class="src-meta">${s.retrieved ? `${s.retrieved} retrieved · <strong>${s.inDataset} in results</strong>${discarded ? ` · discarded: ${esc(discarded)}` : ''}` : esc(s.kind || '')}${s.lastSuccessAt ? ` · last success ${esc(ago(s.lastSuccessAt))}` : ''}</div>
       ${s.reason ? `<div class="src-reason">${esc(s.reason)}</div>` : ''}
+      ${reviewHtml(s)}
       ${q ? `<div class="qgrid">${cov(q)}</div>
         <div class="src-meta">${Object.entries(q.types).map(([k, v]) => `${v} ${esc(TYPE_PLURAL[k]?.[v === 1 ? 0 : 1] || k)}`).join(' · ')} · ${q.needsConfirmation} need price confirmation · ${q.inferredFields} estimated values</div>` : ''}
     </div>`;
+  };
+  const reviewHtml = (s) => {
+    const r = s.review;
+    if (!r) return '';
+    const rows = [
+      ['Site', s.domain], ['Listing content reachable', yesNo(r.technicallyAccessible)], ['Scraping tested', yesNo(r.scrapingTested)],
+      ['robots.txt', r.robots], ['Terms reviewed', yesNo(r.termsReviewed)], ['Automated access', PERMITTED[r.automatedAccessPermitted] || '—'],
+      ['Enabled', s.enabled ? 'Yes' : 'No'], ['Pagination', r.pagination], ['Photos', r.photos],
+      ['Last success', s.lastSuccessAt ? `${ago(s.lastSuccessAt)}` : '—'], ['Last failure', s.lastFailureAt ? `${ago(s.lastFailureAt)} — ${s.failureReason || ''}` : '—'],
+    ].filter(([, v]) => v);
+    return `<details class="src-review"><summary>Investigation details (checked ${esc(r.checkedAt)})</summary>
+      <dl>${rows.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join('')}</dl>
+      ${r.blockers?.length ? `<p class="small"><strong>Blockers:</strong></p><ul class="small">${r.blockers.map((b) => `<li>${esc(b)}</li>`).join('')}</ul>` : ''}
+      ${r.pagesTested?.length ? `<p class="small"><strong>Pages tested:</strong> ${esc(r.pagesTested.join(' · '))}</p>` : ''}
+      ${s.nextStep ? `<p class="small"><strong>Next step:</strong> ${esc(s.nextStep)}</p>` : ''}
+    </details>`;
   };
   const ex = (s) => `<div class="src"><div class="src-name">${esc(s.name)}</div><span class="src-state ${esc(s.status)}">${esc(STATUS_LABEL[s.status] || s.status)}</span><div class="src-reason">${esc(s.reason)} <em>(checked ${esc(s.checkedAt)})</em></div></div>`;
   $('#status-body').innerHTML = `
@@ -630,7 +655,7 @@ function renderStatus() {
       <div class="stat"><b>${t.photosLoaded}/${t.photosChecked}</b><span>photos verified loading</span></div>
       <div class="stat"><b>${t.duplicatesMerged}</b><span>duplicates merged</span></div>
     </div>
-    <h3>Sources searched — coverage in current results</h3>
+    <h3>Sources — status and coverage in current results</h3>
     <p class="muted small" style="margin:-6px 0 0">Coverage = share of this source's listings where the field is known. "Roommates stated" only counts numbers the listing actually states.</p>
     <div class="src-list">${st.sources.map(src).join('')}</div>
     <h3>Not searched, and why</h3>

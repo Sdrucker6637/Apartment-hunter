@@ -311,8 +311,14 @@ dialog::backdrop { background: rgba(10, 10, 10, .55); backdrop-filter: blur(2px)
 .src-state { font-size: 11px; font-weight: 800; letter-spacing: .05em; border-radius: 6px; padding: 3px 7px; justify-self: end; align-self: start; white-space: nowrap; }
 .src-state.LIVE { background: color-mix(in srgb, var(--good) 15%, transparent); color: var(--good); }
 .src-state.LIVE_WITH_LIMITATIONS { background: var(--warn-soft); color: var(--warn); }
-.src-state.AUTH_REQUIRED, .src-state.UNVERIFIED, .src-state.MANUAL_ONLY { background: var(--est-soft); color: var(--est-ink); }
-.src-state.SOURCE_BLOCKED, .src-state.ENVIRONMENT_BLOCKED, .src-state.NO_PUBLIC_ACCESS { background: var(--unk-soft); color: var(--muted); }
+.src-state.AUTH_REQUIRED, .src-state.UNVERIFIED, .src-state.DISABLED, .src-state.PERMISSION_REQUIRED { background: var(--est-soft); color: var(--est-ink); }
+.src-state.BLOCKED, .src-state.NO_PUBLIC_ACCESS { background: var(--unk-soft); color: var(--muted); }
+.src-review { grid-column: 1 / -1; font-size: 13px; }
+.src-review summary { cursor: pointer; font-weight: 700; color: var(--ink-2); }
+.src-review dl { display: grid; grid-template-columns: max-content 1fr; gap: 3px 12px; margin: 8px 0; }
+.src-review dt { color: var(--muted); }
+.src-review dd { margin: 0; overflow-wrap: anywhere; }
+.src-review ul { margin: 4px 0 8px; padding-left: 18px; }
 .src-meta { grid-column: 1 / -1; font-size: 13px; color: var(--ink-2); }
 .src-reason { grid-column: 1 / -1; font-size: 12.5px; color: var(--muted); }
 .qgrid { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 4px 18px; }

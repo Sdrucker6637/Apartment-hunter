@@ -5,7 +5,7 @@
 //   node scripts/make-sample.js && DATA_DIR=sample npm start
 import { mkdir, writeFile } from 'node:fs/promises';
 import { normalizeListing, field } from '../scraper/schema.js';
-import { EXCLUDED } from '../scraper/sources/index.js';
+import { EXCLUDED, SOURCES } from '../scraper/sources/index.js';
 import { quality } from '../scraper/index.js';
 
 const hues = [12, 38, 145, 200, 265, 320];
@@ -22,7 +22,7 @@ const specs = [
   { src: 'roomster', label: 'Roomster', type: R, title: 'Room in 2BR with private bath', hood: [null, 'Queens'], hoodBasis: 'inferred', price: 1250, beds: 2, move: '2026-10-01', photos: 1 },
   { src: 'roomster', label: 'Roomster', type: 'ENTIRE_APARTMENT', title: '2BR apartment, whole unit', hood: ['Crown Heights', 'Brooklyn'], total: 3000, beds: 2, move: '2026-11-20', photos: 3, company: true },
   { src: 'reddit', label: 'r/RoommatesNYC', type: R, title: 'Looking for a 3rd roommate — Astoria 3BR', hood: ['Astoria', 'Queens'], price: 1400, likely: true, beds: 3, mates: 2, move: '2026-12-01', laundry: 'in_building', photos: 0 },
-  { src: 'manual', label: 'Facebook (added manually)', type: 'SUBLET', title: 'Room sublet in Harlem 2BR', hood: ['Harlem', 'Manhattan'], price: 1150, beds: 2, photos: 0, sourceOnly: true },
+  { src: 'roomster', label: 'Roomster', type: 'SUBLET', title: 'Room sublet in Harlem 2BR', hood: ['Harlem', 'Manhattan'], price: 1150, beds: 2, photos: 0, sourceOnly: true },
   { src: 'junehomes', label: 'June Homes', type: R, title: 'Full Bedroom A', hood: ['Hamilton Heights', 'Manhattan'], price: 1225, beds: 3, move: '2027-01-31', furnished: true, photos: 4, caption: true },
   { src: 'roomster', label: 'Roomster', type: 'LEASE_TAKEOVER', title: 'Studio lease takeover in LIC', hood: ['Long Island City', 'Queens'], price: 1650, whole: true, beds: 0, move: '2026-10-05', photos: 6 },
   { src: 'roomster', label: 'Roomster', type: 'UNKNOWN', title: 'Great place, message me', hood: [null, null], photos: 2 },
@@ -72,14 +72,17 @@ await writeFile('sample/data/listings.json', JSON.stringify({ generatedAt: now, 
 await writeFile('sample/data/status.json', JSON.stringify({
   generatedAt: now, dataKind: 'SAMPLE', criteria: { maxShare: 1700 },
   totals: { listings: listings.length, withPhotos: listings.filter((l) => l.photos.length).length, duplicatesMerged: 1, dropped: {}, photosChecked: 0, photosLoaded: 0 },
-  sources: [
-    ...['junehomes', 'roomster'].map((id) => {
-      const mine = listings.filter((l) => l.source === id);
-      return { id, name: mine[0].sourceLabel, status: 'LIVE', retrieved: mine.length + 3, count: mine.length + 3, inDataset: mine.length, withPhotos: mine.filter((l) => l.photos.length).length, discarded: { 'over budget': 3 }, quality: quality(mine), reason: 'SAMPLE status' };
-    }),
-    { id: 'reddit', name: 'Reddit', status: 'AUTH_REQUIRED', count: 0, inDataset: 1, withPhotos: 0, reason: 'SAMPLE status' },
-    { id: 'diggz', name: 'Diggz', status: 'UNVERIFIED', count: 0, inDataset: 0, withPhotos: 0, reason: 'SAMPLE status' },
-  ],
+  sources: SOURCES.map((src) => {
+    const mine = listings.filter((l) => l.source === src.id);
+    const live = mine.length > 0;
+    return {
+      id: src.id, name: src.name, domain: src.domain, kind: src.kind, review: src.review || null, hasAdapter: !!src.run, enabled: live,
+      status: live ? 'LIVE' : src.defaultStatus || (src.id === 'reddit' ? 'AUTH_REQUIRED' : 'DISABLED'),
+      retrieved: live ? mine.length + 3 : 0, count: live ? mine.length + 3 : 0, inDataset: mine.length, withPhotos: mine.filter((l) => l.photos.length).length,
+      discarded: live ? { 'over budget': 3 } : {}, quality: live ? quality(mine) : null,
+      lastSuccessAt: live ? now : null, lastFailureAt: null, failureReason: null, nextStep: src.nextStep || null, reason: 'SAMPLE status',
+    };
+  }),
   excluded: EXCLUDED,
 }));
 console.log(`wrote ${listings.length} SAMPLE listings to sample/`);
