@@ -5,6 +5,7 @@
 import { readFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { parseListing } from '../parse.js';
+import { extractText } from '../extract.js';
 import { field } from '../schema.js';
 
 export const MANUAL_PATH = new URL('../../data/manual.json', import.meta.url);
@@ -61,7 +62,17 @@ export function manualToListing(entry) {
     bedrooms: ex(p.bedrooms),
     bathrooms: ex(p.bathrooms),
     availableRooms: ex(p.roomsAvailable),
-    roommates: field(p.roommates, p.roommatesSource === 'stated' ? 'explicit' : 'inferred'),
+    roommates: field(p.roommatesSource === 'stated' ? p.roommates : null, 'explicit'),
+    listingType: field(p.listingType, 'explicit'),
+    ...(() => {
+      const x = extractText({ title: title, text: body });
+      return {
+        furnished: field(x.furnished, 'explicit'),
+        utilitiesIncluded: field(x.utilitiesIncluded, 'explicit'),
+        postedBy: field(x.postedBy, 'explicit'),
+        ...(x.laundry === 'on_site' ? { laundry: field('on_site', 'explicit') } : {}),
+      };
+    })(),
     moveIn: ex(p.moveIn),
     neighborhood: ex(p.neighborhood),
     borough: field(p.borough, p.neighborhood ? 'inferred' : 'explicit'),

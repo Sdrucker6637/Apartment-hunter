@@ -28,8 +28,14 @@ jobs:
       - name: Run probe
         run: |
           case "$STAGE" in rules|listings|inspect|discover) ;; *) echo "unknown stage: $STAGE"; exit 1;; esac
+          # Stages past "rules" print page titles/image URLs from listings; they
+          # may only run while the repository is private.
+          if [ "$STAGE" != "rules" ] && [ "$(gh api "repos/$GITHUB_REPOSITORY" --jq .private)" != "true" ]; then
+            echo "Repository is public: only the 'rules' stage (robots.txt + terms) may run."; exit 1
+          fi
           node "probe/$STAGE.js"
         env:
+          GH_TOKEN: ${{ github.token }}
           STAGE: ${{ inputs.stage }}
           ONLY: ${{ inputs.only }}
           REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}

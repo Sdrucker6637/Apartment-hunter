@@ -8,6 +8,8 @@ import { antiBotSignals } from '../probe/antibot.js';
 export const USER_AGENT = 'ApartmentHunterBot/0.2 (+https://github.com/sdrucker6637/apartment-hunter; personal NYC roommate search; low volume)';
 
 const robotsCache = new Map();
+// Hosts that blocked us this run: no further requests (no retrying into a block).
+const blockedHosts = new Map();
 const lastRequest = new Map();
 const MIN_INTERVAL_MS = Number(process.env.MIN_REQUEST_INTERVAL_MS || 1500);
 
@@ -53,6 +55,7 @@ async function robotsFor(origin) {
 // GET a page as text. Throws RobotsDisallowedError / BlockedError / Error.
 export async function fetchText(url, { accept = 'text/html,application/json;q=0.9,*/*;q=0.8', headers = {} } = {}) {
   const u = new URL(url);
+  if (blockedHosts.has(u.host)) throw new BlockedError(url, blockedHosts.get(u.host), ['blocked earlier this run — not retried']);
   const robots = await robotsFor(u.origin);
   if (robots.disallowAll) throw new RobotsDisallowedError(url, 'robots.txt unreachable (5xx) — treated as disallow');
   const verdict = isAllowed(robots.groups, u.pathname + u.search, USER_AGENT);
@@ -62,7 +65,12 @@ export async function fetchText(url, { accept = 'text/html,application/json;q=0.
   const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT, Accept: accept, ...headers }, redirect: 'follow', signal: AbortSignal.timeout(25000) });
   const body = await res.text();
   const signals = antiBotSignals(res, body).filter((s) => s !== 'cloudflare'); // a CDN header alone isn't a block
-  if (res.status === 403 || res.status === 429 || (res.status === 503 && signals.length)) throw new BlockedError(url, res.status, signals);
+  // Some sites embed challenge scripts in normal 200 pages, so markers only count on non-200 responses.
+  const challenged = res.status !== 200 && (signals.includes('cloudflare-challenge') || signals.includes('perimeterx'));
+  if (res.status === 403 || res.status === 429 || (res.status === 503 && signals.length) || challenged) {
+    blockedHosts.set(u.host, res.status);
+    throw new BlockedError(url, res.status, signals);
+  }
   if (!res.ok) throw new Error(`HTTP ${res.status} at ${url}`);
   return { body, finalUrl: res.url, status: res.status };
 }

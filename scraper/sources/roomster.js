@@ -5,7 +5,7 @@
 // Data: schema.org ItemList JSON-LD on index pages; detail pages add geo + gallery.
 
 import { fetchText, jsonLdBlocks, pageText, decodeEntities, RobotsDisallowedError } from '../http.js';
-import { parseListing } from '../parse.js';
+import { extractText } from '../extract.js';
 import { findNeighborhood } from '../neighborhoods.js';
 import { field } from '../schema.js';
 import { boroughFromCoords } from '../geo.js';
@@ -57,7 +57,7 @@ export function parseIndexItem(listItem, kind) {
       ? { monthly: kind === 'room' ? price : null, max: kind === 'room' ? price : null, type: kind === 'room' ? 'room_share' : 'unknown', basis: kind === 'room' ? 'structured' : null }
       : undefined,
     totalRent: field(kind === 'apartment' && Number.isFinite(price) ? price : null, 'structured'),
-    roomType: field(kind === 'room' ? 'private' : null, 'structured'),
+    listingType: field(kind === 'room' ? 'ROOM_IN_SHARED_APARTMENT' : 'ENTIRE_APARTMENT', 'structured'),
     moveIn: field(avail ? { date: String(avail).slice(0, 10), text: String(avail).slice(0, 10) } : null, 'structured'),
     neighborhood: field(hood.neighborhood, hood.neighborhood ? 'explicit' : null),
     borough: field(hood.borough, hood.borough ? 'inferred' : null),
@@ -68,39 +68,49 @@ export function parseIndexItem(listItem, kind) {
   };
 }
 
-// Applies the free-text extractor to fields the structured data didn't give.
+// Applies the shared text extractor (scraper/extract.js) to fields the
+// structured data didn't give.
 function fillFromText(listing, text) {
-  const p = parseListing({ title: listing.title, body: text, postedAt: listing.postedAt });
+  const x = extractText({ title: listing.title, text, postedAt: listing.postedAt });
   const set = (key, value, basis) => {
     if ((listing[key]?.value ?? null) == null && value != null) listing[key] = field(value, basis);
   };
-  set('bedrooms', p.bedrooms, 'explicit');
-  set('bathrooms', p.bathrooms, 'explicit');
-  set('availableRooms', p.roomsAvailable, 'explicit');
-  if (p.roommates != null) set('roommates', p.roommates, p.roommatesSource === 'stated' ? 'explicit' : 'inferred');
-  set('laundry', p.laundry && p.laundry.replace('-', '_'), 'explicit');
-  if ((listing.moveIn?.value ?? null) == null && p.moveIn) listing.moveIn = field(p.moveIn, 'explicit');
-  if (!listing.neighborhood?.value && p.neighborhood) {
-    listing.neighborhood = field(p.neighborhood, 'explicit');
-    listing.borough = field(p.borough, 'inferred');
+  if (x.seeking) listing.postType = 'seeking';
+  // "Bedrooms: 2" in the Residence section is a site field; free text is weaker.
+  if (x.bedroomsLabeled && x.bedrooms != null) listing.bedrooms = field(x.bedrooms, 'structured');
+  set('bedrooms', x.bedrooms, 'explicit');
+  set('bathrooms', x.bathrooms, 'explicit');
+  set('availableRooms', x.roomsAvailable, 'explicit');
+  set('roommates', x.roommates, 'explicit');
+  // The listing's own words can refine the category it was filed under.
+  if (x.listingType === 'SUBLET' || x.listingType === 'LEASE_TAKEOVER') listing.listingType = field(x.listingType, 'explicit');
+  if (/\bprivate\s+(?:bed)?room\b/i.test(text)) set('roomType', 'private', 'explicit');
+  else if (/\bshared\s+(?:bed)?room\b|\broom\s*share\b|\bdivider\b/i.test(text)) set('roomType', 'shared', 'explicit');
+  set('laundry', x.laundry, 'explicit');
+  set('furnished', x.furnished, 'explicit');
+  set('utilitiesIncluded', x.utilitiesIncluded, 'explicit');
+  if (x.postedBy) listing.postedBy = field(x.postedBy, 'explicit');
+  if ((listing.moveIn?.value ?? null) == null && x.moveIn) listing.moveIn = field(x.moveIn, 'explicit');
+  if (!listing.neighborhood?.value && x.neighborhood) {
+    listing.neighborhood = field(x.neighborhood, 'explicit');
+    listing.borough = field(x.borough, 'calculated');
   }
   // Apartment posts: only take a per-person price if the text states one…
-  if (listing.listingKind === 'apartment' && p.priceType === 'room_share' && p.priceBasis !== 'likely') {
-    listing.price = { monthly: p.price, max: p.priceMax, type: 'room_share', basis: p.priceBasis === 'calculated' ? 'calculated' : 'explicit' };
+  if (listing.listingKind === 'apartment' && x.priceType === 'room_share' && x.shareBasis !== 'likely') {
+    listing.price = { monthly: x.share, max: x.shareMax, type: 'room_share', basis: x.shareBasis === 'calculated' ? 'calculated' : 'explicit' };
   }
   // …or when the whole unit is a studio/1BR, whose full rent is what you'd pay.
   const beds = listing.bedrooms?.value;
   if (listing.listingKind === 'apartment' && listing.price?.monthly == null && listing.totalRent?.value && (beds === 0 || beds === 1)) {
     listing.price = { monthly: listing.totalRent.value, max: listing.totalRent.value, type: 'whole_unit', basis: 'structured' };
-    listing.roommates = field(0, 'inferred');
   }
   // Coordinates → borough, only when nothing better is known.
   if (!listing.borough?.value && listing.location) {
     const boro = boroughFromCoords(listing.location.lat, listing.location.lng);
     if (boro) listing.borough = field(boro, 'inferred');
   }
-  listing.contactEmails = p.contacts.emails;
-  listing.contactPhones = p.contacts.phones;
+  listing.contactEmails = x.contacts.emails;
+  listing.contactPhones = x.contacts.phones;
   return listing;
 }
 
@@ -129,6 +139,13 @@ export function parseDetail(listing, html) {
 
   const desc = /, USA\s+Description\s+([\s\S]{15,4000}?)\s+(?:Additional information|Residence Building Type|Lifestyle|Show all photos|Report|$)/.exec(text)?.[1];
   if (desc && desc.length >= (out.description || '').length * 0.6) out.description = desc.trim();
+
+  // Roomster's own category, e.g. "Listing Type Room for rent".
+  const cat = /Listing Type\s+(.{3,40}?)\s+(?:Available Date|Move-in|Price)/i.exec(text)?.[1];
+  if (cat) {
+    const t = /sub-?let|sub-?lease/i.test(cat) ? 'SUBLET' : /room/i.test(cat) ? 'ROOM_IN_SHARED_APARTMENT' : /apartment|entire|house|studio/i.test(cat) ? 'ENTIRE_APARTMENT' : null;
+    if (t) out.listingType = field(t, 'structured');
+  }
 
   const furnished = /\bFurnished:\s*(Yes|No)\b/i.exec(text)?.[1];
   if (furnished) out.furnished = field(/yes/i.test(furnished), 'structured');

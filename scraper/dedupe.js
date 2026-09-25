@@ -48,17 +48,16 @@ export function textSimilarity(a, b) {
 const contacts = (l) => new Set([...(l.contactEmails || []), ...(l.contactPhones || [])].map((c) => c.toLowerCase()));
 
 // Returns { same: boolean, reason } for two normalized listings.
-// Sources whose listing IDs are already unique units (no reposting).
-const UNIQUE_ID_SOURCES = new Set(['junehomes']);
-
-export function compare(a, b) {
+// `uniqueIdSources`: sources whose IDs are always distinct units (adapter
+// meta `uniqueIds: true`), so two IDs from them are never merged.
+export function compare(a, b, { uniqueIdSources = new Set() } = {}) {
   if (a.id === b.id) return { same: true, reason: 'same source id' };
   if (a.source === b.source) {
     // Within one source, only merge reposts: near-identical text at the same price.
-    if (UNIQUE_ID_SOURCES.has(a.source)) return { same: false, reason: null };
+    if (uniqueIdSources.has(a.source)) return { same: false, reason: null };
     const sim = textSimilarity(`${a.title} ${a.description}`, `${b.title} ${b.description}`);
-    const priceA = a.price.monthly ?? a.totalRent.value;
-    const priceB = b.price.monthly ?? b.totalRent.value;
+    const priceA = a.price.share ?? a.price.total;
+    const priceB = b.price.share ?? b.price.total;
     if (sim >= 0.95 && priceA === priceB) return { same: true, reason: `repost (text ${sim.toFixed(2)}, same price)` };
     return { same: false, reason: null };
   }
@@ -69,8 +68,8 @@ export function compare(a, b) {
   const ca = contacts(a);
   const sharedContact = [...contacts(b)].some((c) => ca.has(c));
 
-  const priceA = a.price.monthly;
-  const priceB = b.price.monthly;
+  const priceA = a.price.share;
+  const priceB = b.price.share;
   const samePrice = priceA != null && priceB != null && Math.abs(priceA - priceB) <= 25;
   const sameBeds = a.bedrooms.value != null && a.bedrooms.value === b.bedrooms.value;
   const sameHood = a.neighborhood.value != null && a.neighborhood.value === b.neighborhood.value;
@@ -84,12 +83,12 @@ export function compare(a, b) {
 
 // Merges duplicates into one listing that links to every source.
 // Photos are combined only across a strong match (shared photo/URL/id).
-export function dedupe(listings) {
+export function dedupe(listings, opts = {}) {
   const groups = [];
   for (const l of [...listings].sort((x, y) => new Date(y.postedAt || 0) - new Date(x.postedAt || 0))) {
     let placed = false;
     for (const g of groups) {
-      const { same, reason } = compare(g.primary, l);
+      const { same, reason } = compare(g.primary, l, opts);
       if (!same) continue;
       g.members.push({ listing: l, reason });
       placed = true;
@@ -114,10 +113,11 @@ export function dedupe(listings) {
         }
       }
       // Fill fields the primary lacks from the duplicate.
-      for (const k of ['bedrooms', 'roommates', 'moveIn', 'neighborhood', 'borough', 'laundry', 'furnished', 'roomType', 'totalRent']) {
+      for (const k of ['bedrooms', 'roommates', 'moveIn', 'neighborhood', 'borough', 'laundry', 'furnished', 'roomType']) {
         if (merged[k]?.value == null && listing[k]?.value != null) merged[k] = listing[k];
       }
-      if (merged.price.monthly == null && listing.price.monthly != null) merged.price = listing.price;
+      if (merged.price.share == null && listing.price.share != null) merged.price = listing.price;
+      if (merged.listingType.value === 'UNKNOWN' && listing.listingType.value !== 'UNKNOWN') merged.listingType = listing.listingType;
     }
     merged.photoStatus = merged.photos.length ? 'available' : merged.photoStatus;
     return merged;

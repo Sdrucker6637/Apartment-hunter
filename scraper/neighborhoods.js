@@ -36,6 +36,7 @@ export const NEIGHBORHOODS = [
   { name: 'Washington Heights', borough: 'Manhattan', aliases: ['washington heights', 'wash heights', 'wahi'] },
   { name: 'Inwood', borough: 'Manhattan', aliases: ['inwood'] },
   { name: 'Roosevelt Island', borough: 'Manhattan', aliases: ['roosevelt island'] },
+  { name: 'Columbus Circle', borough: 'Manhattan', aliases: ['columbus circle'] },
 
   // Brooklyn
   { name: 'Williamsburg', borough: 'Brooklyn', aliases: ['williamsburg', 'wburg', 'billyburg'] },
@@ -58,7 +59,8 @@ export const NEIGHBORHOODS = [
   { name: 'Cobble Hill', borough: 'Brooklyn', aliases: ['cobble hill'] },
   { name: 'Boerum Hill', borough: 'Brooklyn', aliases: ['boerum hill'] },
   { name: 'Brooklyn Heights', borough: 'Brooklyn', aliases: ['brooklyn heights'] },
-  { name: 'DUMBO', borough: 'Brooklyn', aliases: ['dumbo'] },
+  { name: 'DUMBO', borough: 'Brooklyn', aliases: ['dumbo', 'vinegar hill'] },
+  { name: 'Bath Beach', borough: 'Brooklyn', aliases: ['bath beach'] },
   { name: 'Downtown Brooklyn', borough: 'Brooklyn', aliases: ['downtown brooklyn'] },
   { name: 'Red Hook', borough: 'Brooklyn', aliases: ['red hook'] },
   { name: 'Sunset Park', borough: 'Brooklyn', aliases: ['sunset park'] },
@@ -100,7 +102,8 @@ export const NEIGHBORHOODS = [
   { name: 'St. George', borough: 'Staten Island', aliases: ['st. george', 'st george', 'saint george'] },
 
   // Across the river (common in NYC roommate groups)
-  { name: 'Jersey City', borough: 'New Jersey', aliases: ['jersey city', 'jc heights', 'journal square'] },
+  { name: 'Jersey City', borough: 'New Jersey', aliases: ['jersey city', 'jc heights', 'journal square', 'newport'] },
+  { name: 'Union City', borough: 'New Jersey', aliases: ['union city'] },
   { name: 'Hoboken', borough: 'New Jersey', aliases: ['hoboken'] },
 ];
 
@@ -142,10 +145,18 @@ function buildMatchers(entries) {
 const HOOD_MATCHERS = buildMatchers(NEIGHBORHOODS);
 const BOROUGH_MATCHERS = buildMatchers(BOROUGHS);
 
+// "20 minutes to Midtown", "close to Williamsburg", "one stop from LES" describe
+// a commute, not where the listing is.
+const TRAVEL_BEFORE = /(?:\bto|\bfrom|\bnear|\bclose\s+to|\bcommute|\bride|\bstops?|\bminutes?|\bmins?|\bwalk(?:ing)?|\bborder(?:ing|s)?|\bnext\s+to|\baway\s+from)\s+(?:(?!in\b|at\b|on\b|located\b)[\w.'’]+\s+){0,4}$/i;
+
 function earliest(matchers, text) {
   let best = null;
   for (const m of matchers) {
-    const hit = m.re.exec(text);
+    const g = new RegExp(m.re.source, m.re.flags.includes('g') ? m.re.flags : `${m.re.flags}g`);
+    let hit = null;
+    for (const h of text.matchAll(g)) {
+      if (!TRAVEL_BEFORE.test(text.slice(Math.max(0, h.index - 50), h.index))) { hit = h; break; }
+    }
     if (!hit) continue;
     // Earliest mention wins; for equal positions the longer alias (sorted first) wins.
     if (!best || hit.index < best.index) best = { entry: m.entry, index: hit.index };

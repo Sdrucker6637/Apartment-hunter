@@ -22,10 +22,11 @@ const MIN_RENT = 400;
 const MAX_RENT = 15000;
 
 // Amounts like "$1,450", "$1450/mo", "1450/month", "1.5k", "$1.4k".
-const PRICE_RE = /(\$\s?)?(\d{1,2}(?:,\d{3}|\d{3})|\d{1,2}(?:\.\d{1,2})?\s?k)\b(\s*(?:\/|per|a)\s*(?:mo(?:nth)?\b|m\b|person|room|each))?/gi;
+const PRICE_RE = /(\$\s?)?(\d{1,2},\d{3}|\d{3,5}|\d{1,2}(?:\.\d{1,2})?\s?k)\b(?!\s*(?:sq|square|ft|sf)\b)(\s*(?:\/|per|a|an)\s*(?:mo(?:nth)?\b|m\b|person|room|each|week\b|wk\b|day\b|night\b))?/gi;
+const NON_MONTHLY_AFTER = /^\s*(?:\/|per|a|an|each)?\s*(?:week|wk|day|night)\b|^\s*(?:weekly|daily|nightly)\b/i;
 
 const NON_RENT_BEFORE = /(deposit|security|broker|fee|utilities|utils|util|internet|wifi|electric|application|app fee|income|salary|earn|make|credit|parking|bonus|off|discount|save|was)\W*(?:\w+\W+){0,2}$/i;
-const NON_RENT_AFTER = /^\W*(deposit|security|broker|fee|in utilities|utilities|for utilities|credit score|salary|income|sq|square|ft|off\b)/i;
+const NON_RENT_AFTER = /^\s{0,2}(?:security\s+)?(?:deposit|security|broker|fee|in utilities|for utilities|utilities\s+(?:per|a|\/|fee|cost)|credit score|salary|income|sq|square|ft|off\b)/i;
 
 // Each price candidate: { amount, perPerson, total }.
 export function findPrices(text) {
@@ -43,7 +44,12 @@ export function findPrices(text) {
     // Context stays within the current sentence so "No broker fee. Rent $1,500" still counts.
     const before = text.slice(Math.max(0, idx - 30), idx).split(/[.!?;\n]\s/).pop();
     const after = text.slice(idx + raw.length, idx + raw.length + 25).split(/[.!?;\n]/)[0];
-    if (NON_RENT_BEFORE.test(before) || NON_RENT_AFTER.test(after)) continue;
+    // Weekly / daily / nightly amounts are not monthly rent.
+    if (unit && /week|wk|day|night/i.test(unit)) continue;
+    if (NON_MONTHLY_AFTER.test(text.slice(idx + raw.length, idx + raw.length + 12))) continue;
+    // A price written "/mo" or "/month" is rent even if a deposit is mentioned next to it.
+    const monthlyUnit = unit && /mo/i.test(unit);
+    if (NON_RENT_BEFORE.test(before) || (!monthlyUnit && NON_RENT_AFTER.test(after))) continue;
     const ctx = (before + ' ' + after).toLowerCase() + ' ' + (unit || '').toLowerCase();
     const perPerson = /per person|each|per room|\/room|pp\b|\/person|my share|your share|per roommate/.test(ctx);
     const total = /\btotal\b|whole (apt|apartment|unit)|entire (apt|apartment|unit)|for the (apt|apartment|unit)/.test(ctx);
@@ -94,39 +100,64 @@ export function findRoomsAvailable(text) {
 // ---------- roommates ----------
 
 const WHO = '(?:roommates?|roomies?|roomates?|housemates?|flatmates?|people|persons?|guys|girls|women|men|gals|dudes|friends|tenants|others|professionals|grad students|students)';
+// Only STATED counts of the people you'd be joining. Nothing is estimated:
+// "family of 3", "4BR apartment" or "looking for 2 roommates" do not tell us
+// how many people already live there.
+const ADJ = '(?:other|current|existing|great|chill|friendly|awesome|lovely|cool|easygoing|easy-going|clean|quiet|fun|female|male|working|young|wonderful|amazing|nice|super)';
 const ROOMMATE_PATTERNS = [
-  // "living with 2 other roommates", "live with two girls", "you'd be living with 1 other person"
-  new RegExp(`\\bliv(?:e|ing)\\s+with\\s+${NUM}\\s+(?:other\\s+|current\\s+|existing\\s+|great\\s+|chill\\s+|friendly\\s+|awesome\\s+|lovely\\s+|cool\\s+|easygoing\\s+|easy-going\\s+)*${WHO}`, 'i'),
-  // "2 current roommates", "3 other roommates", "two chill roommates"
-  new RegExp(`\\b${NUM}\\s+(?:other|current|existing|great|chill|friendly|awesome|lovely|cool|easygoing|easy-going|clean|quiet|fun|female|male)\\s+(?:\\w+\\s+)?${WHO}`, 'i'),
+  // "living with 2 other roommates", "you'd be living with 1 other person"
+  new RegExp(`\\bliv(?:e|ing)\\s+with\\s+${NUM}\\s+(?:${ADJ}\\s+)*${WHO}`, 'i'),
+  // "share (the apartment) with two others"
+  new RegExp(`\\bshar(?:e|ing)\\s+(?:the\\s+|this\\s+|an?\\s+|our\\s+)?(?:apartment|apt|place|unit|home|house|space\\s+)?\\s*with\\s+${NUM}\\s+(?:${ADJ}\\s+)*${WHO}`, 'i'),
+  // "2 current roommates", "two chill roommates"
+  new RegExp(`\\b${NUM}\\s+${ADJ}\\s+(?:\\w+\\s+)?${WHO}`, 'i'),
   // "join 2 roommates", "joining two others"
-  new RegExp(`\\bjoin(?:ing)?\\s+${NUM}\\s+(?:\\w+\\s+)?${WHO}`, 'i'),
-  // "with 2 roommates", "with two others"
-  new RegExp(`\\bwith\\s+${NUM}\\s+(?:\\w+\\s+)?${WHO}`, 'i'),
-  // "2 roommates" (bare, last resort)
-  new RegExp(`\\b${NUM}\\s+(?:roommates|roomies|housemates|flatmates)\\b`, 'i'),
+  new RegExp(`\\bjoin(?:ing)?\\s+${NUM}\\s+(?:${ADJ}\\s+)*${WHO}`, 'i'),
+  // "with 2 roommates"
+  new RegExp(`\\bwith\\s+${NUM}\\s+(?:${ADJ}\\s+)*${WHO}`, 'i'),
 ];
-const LIVE_WITH_ONE_RE = /\b(?:live|living|be)\s+with\s+(?:me|my\s+(?:partner|boyfriend|girlfriend|bf|gf)\b)|\bjust\s+(?:me|us)\b|\bI(?:'m| am)\s+(?:the\s+only|your)\s+(?:other\s+)?roommate/i;
-const LIVE_WITH_COUPLE_RE = /\b(?:live|living)\s+with\s+(?:a|one)\s+couple\b|\bmy\s+(?:partner|boyfriend|girlfriend|bf|gf)\s+and\s+(?:I|me)\b/i;
+// Wanting N roommates is about rooms on offer, not people already there.
+const WANTING_BEFORE = /(?:looking\s+for|seeking|searching\s+for|need(?:ing)?|want(?:ing)?|hoping\s+to\s+find|to\s+find)\s*(?:\S+\s+){0,2}$/i;
+const LIVE_WITH_ONE_RE = /\b(?:live|living|be)\s+with\s+(?:me|my\s+(?:partner|boyfriend|girlfriend|bf|gf)\b)|\bI(?:'m| am)\s+(?:the\s+only|your)\s+(?:other\s+)?roommate|\bjust\s+me\s+(?:living\s+)?(?:here|in\s+the\s+apartment)/i;
+const LIVE_WITH_TWO_RE = /\b(?:live|living)\s+with\s+(?:a|one)\s+couple\b|\b(?:me\s+and\s+my|my)\s+(?:roommate|roomie|partner|boyfriend|girlfriend|bf|gf|friend|sister|brother)\s+and\s+(?:I|me)\b|\bme\s+and\s+(?:my\s+)?(?:roommate|roomie|partner|boyfriend|girlfriend|friend)\b|\bthe\s+two\s+of\s+us\b/i;
+const THREE_OF_US_RE = /\bthe\s+three\s+of\s+us\b/i;
 
-// Number of people already in the unit that you would be joining.
-export function findRoommates(text, { bedrooms, roomsAvailable, kind } = {}) {
+// Number of people already in the unit that you would be joining (stated only).
+export function findRoommates(text) {
   if (!text) return { roommates: null, roommatesSource: null };
   for (const re of ROOMMATE_PATTERNS) {
-    const m = re.exec(text);
-    if (!m) continue;
-    const n = toNumber(m[1]);
-    if (n != null && n <= 8) return { roommates: n, roommatesSource: 'stated' };
+    const g = new RegExp(re.source, 'gi');
+    for (const m of text.matchAll(g)) {
+      if (WANTING_BEFORE.test(text.slice(Math.max(0, m.index - 40), m.index))) continue;
+      const n = toNumber(m[1]);
+      if (n != null && n <= 8) return { roommates: n, roommatesSource: 'stated' };
+    }
   }
-  if (LIVE_WITH_COUPLE_RE.test(text)) return { roommates: 2, roommatesSource: 'stated' };
+  if (THREE_OF_US_RE.test(text)) return { roommates: 3, roommatesSource: 'stated' };
+  // "you'll be living with one NB person, one guy, and two girls (including me)"
+  const list = /\bliv(?:e|ing)\s+with\s+((?:(?:and\s+)?(?:\d|one|two|three|four)\s+(?:[\w-]+\s+){0,2}?(?:person|people|guys?|girls?|women|woman|men|man|roommates?|others?)\b[\s,]*){2,5})/i.exec(text);
+  if (list) {
+    const n = [...list[1].matchAll(/\b(\d|one|two|three|four)\b/gi)].reduce((a, m) => a + toNumber(m[1]), 0);
+    if (n > 0 && n <= 8) return { roommates: n, roommatesSource: 'stated' };
+  }
+  if (LIVE_WITH_TWO_RE.test(text)) return { roommates: 2, roommatesSource: 'stated' };
   if (LIVE_WITH_ONE_RE.test(text)) return { roommates: 1, roommatesSource: 'stated' };
-  if (kind === 'apartment') return { roommates: 0, roommatesSource: 'whole-unit' };
-  if (bedrooms != null && bedrooms >= 1) {
-    // One person per bedroom, minus the room(s) on offer.
-    const n = bedrooms - (roomsAvailable ?? 1);
-    if (n >= 0) return { roommates: n, roommatesSource: 'estimated' };
-  }
+  if (/\bonly\s+you\s+and\s+(?:I|me)\s+(?:will\s+)?live\b|\bjust\s+(?:you\s+and\s+(?:I|me)|the\s+two\s+of\s+us)\b/i.test(text)) return { roommates: 1, roommatesSource: 'stated' };
   return { roommates: null, roommatesSource: null };
+}
+
+// ---------- listing type ----------
+// Only from explicit wording; UNKNOWN otherwise.
+const TYPE_RULES = [
+  ['LEASE_TAKEOVER', /\blease\s+(?:take[- ]?over|transfer|assignment|break)\b|\btak(?:e|ing)\s+over\s+(?:my|our|the)\s+lease\b/i],
+  ['SUBLET', /\bsub-?let(?:ting)?\b|\bsub-?leas(?:e|ing)\b|\bshort[- ]term\s+(?:rental|stay|sublet|room|housing)\b/i],
+  ['ROOM_IN_SHARED_APARTMENT', /\b(?:private|spare|furnished|master|sunny|big|large|cozy|small)?\s*(?:bed)?room\s+(?:for\s+rent|available|open|in\s+(?:a|an|my|our|the)\b|in\s+(?:a\s+)?(?:\d|two|three|four|five)\s*-?\s*(?:br|bd|bed(?:room)?)s?\b)|\b(?:\d|one|two|three|four)\s+(?:private\s+)?(?:bed)?rooms?\s+(?!(?:[\w-]+\s+){0,2}(?:apartment|apt|unit|flat|house|home)\b)(?:[\w-]+\s+){0,4}(?:available|open(?:ing)?(?:\s+up)?|for\s+rent)\b|\broom(?:mate|ie)s?\s+(?:wanted|needed)\b|\blooking\s+for\s+(?:an?\s+|\w+\s+)?(?:roommate|roomie|housemate)|\bshared\s+(?:apartment|apt|house|home)\b|\broom\s*share\b|\bto\s+fill\s+(?:(?:the|our|a|my)\s+)?(?:\w+\s+)?(?:bed)?room\b|\bprivate\s+(?:bed)?room\b|\bspare\s+(?:bed)?room\b|\bsecond\s+bedroom\b|\b(?:this|the)\s+room\s+(?:is|can\s+be)\b|\broom\s+is\s+available\b|\bshared\s+common\s+(?:areas?|spaces?)\b|^\W*(?:big\s+|large\s+|sunny\s+|cozy\s+)?(?:bed)?room\s+with\b/im],
+  ['ENTIRE_APARTMENT', /\b(?:entire|whole)\s+(?:apartment|apt|unit|place|home|house|floor)\b|\b(?:vacant|empty)\s+(?:apartment|apt|unit)\b|\b(?:apartment|apt|studio|house|\d\s?br|\d[- ]bed(?:room)?(?:\s+apartment)?)\s+for\s+rent\b|\b(?:\d|one|two|three|four)[- ]?(?:bed(?:room)?|br)s?\s*(?:[/,]\s*(?:\d|one|two)[- ]?(?:full\s+)?bath(?:room)?s?\s*)?(?:w\/\s*\w+\s+)?(?:apartment|apt|flat|unit|residences?)\b|\bapartment\s+(?:is\s+)?(?:available|for\s+rent)\b|\bstudio\s+(?:in|apartment|apt|with|offers|lease)\b|^\W*studio\b|\b\d\s?BR\s+in\b|\b(?:my|the|this)\s+flat\b|\blisting\s+a\s+(?:vacant\s+)?(?:apartment|apt|place)\b/im],
+];
+
+export function findListingType(text) {
+  for (const [type, re] of TYPE_RULES) if (re.test(text || '')) return type;
+  return null;
 }
 
 // ---------- laundry ----------
@@ -135,7 +166,7 @@ export function findLaundry(text) {
   if (!text) return null;
   const t = text.toLowerCase();
   const inUnit = /(w\/d|w\s?&\s?d|washer\s*(?:\/|&|and|-)?\s*dryer|washer-dryer|laundry)\s*(?:is\s+)?(?:in[- ]?unit|in the (?:unit|apartment|apt)|in apt|in-apartment)|in[- ]?unit\s*(?:w\/d|w\s?&\s?d|washer|laundry)|\bwdiu\b|\bw\/d\s*iu\b|washer (?:and|&) dryer in (?:the )?(?:unit|apartment|apt)/;
-  const inBuilding = /(w\/d|w\s?&\s?d|washer\s*(?:\/|&|and|-)?\s*dryer|laundry)\s*(?:room\s*)?(?:is\s+)?(?:in[- ]?(?:the\s+)?(?:building|bldg)|on[- ]site|in basement|in the basement|on (?:each|every) floor)|(?:building|bldg|on[- ]site|basement)\s+(?:has\s+(?:a\s+)?)?laundry|laundry\s+room|shared laundry|common laundry/;
+  const inBuilding = /(w\/d|w\s?&\s?d|washer\s*(?:\/|&|and|-)?\s*dryer|laundry)\s*(?:room\s*)?(?:is\s+)?(?:available\s+)?(?:in[- ]?(?:the\s+)?(?:building|bldg)|on[- ]site|in basement|in the basement|on (?:each|every) floor)|(?:building|bldg|on[- ]site|basement)\s+(?:has\s+(?:a\s+)?)?laundry|laundry\s+room|shared laundry|common laundry/;
   const none = /no (?:w\/d|washer|laundry)|laundromat (?:nearby|next door|around the corner|down the (?:street|block))/;
   if (inUnit.test(t)) return 'in-unit';
   if (inBuilding.test(t)) return 'in-building';
@@ -246,9 +277,8 @@ const WHOLE_UNIT_RE = /\b(?:lease (?:takeover|transfer|assignment)|take over (?:
 const ROOM_RE = /\b(?:room|bedroom)\s+(?:in|available|for rent|for sublet|open)|\broommates?\b|\broomies?\b|\bhousemates?\b|\bprivate room\b|\bshared?\b/i;
 
 export function listingKind(text) {
-  if (WHOLE_UNIT_RE.test(text) && !/\b(?:room in|private room|roommates? (?:wanted|needed)|looking for (?:an?\s+)?roommate)/i.test(text)) return 'apartment';
-  if (ROOM_RE.test(text)) return 'room';
-  return 'room';
+  const t = findListingType(text);
+  return t === 'ENTIRE_APARTMENT' || t === 'LEASE_TAKEOVER' ? 'apartment' : 'room';
 }
 
 // ---------- contact info ----------
@@ -345,11 +375,12 @@ export function parseListing({ title = '', body = '', flair = '', hints = {}, po
   if (hints.price != null && priceInfo.price == null) {
     Object.assign(priceInfo, { price: hints.price, priceMax: hints.price, priceType: 'unknown', priceBasis: 'likely' });
   }
-  const { roommates, roommatesSource } = findRoommates(text, { bedrooms, roomsAvailable, kind });
+  const { roommates, roommatesSource } = findRoommates(text);
   const location = findNeighborhood(hints.neighborhood, title, body);
   return {
     postType: classifyPost({ title, body, flair }),
     kind,
+    listingType: findListingType(text),
     ...priceInfo,
     bedrooms,
     bathrooms: findBathrooms(text),

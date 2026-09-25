@@ -22,12 +22,13 @@ const juneLd = {
   offers: { price: '1075', priceCurrency: 'USD' },
 };
 
-test('June Homes: index JSON-LD → structured price, explicit bedrooms, inferred roommates', () => {
+test('June Homes: index JSON-LD → structured price and type, explicit bedrooms, NO roommate count', () => {
   const l = june.parseIndexItem(juneLd);
   assert.equal(l.sourceId, '2438');
   assert.deepEqual(l.price, { monthly: 1075, max: 1075, type: 'room_share', basis: 'structured' });
   assert.deepEqual(l.bedrooms, { value: 3, basis: 'explicit' });
-  assert.deepEqual(l.roommates, { value: 2, basis: 'inferred' });
+  assert.equal(l.roommates, undefined, 'a 3-bedroom apartment does not state how many people live there');
+  assert.deepEqual(l.listingType, { value: 'ROOM_IN_SHARED_APARTMENT', basis: 'structured' });
   assert.equal(l.neighborhood.value, 'Flatbush');
   assert.equal(l.borough.value, 'Brooklyn');
   assert.equal(l.photos.length, 1);
@@ -42,7 +43,8 @@ test('June Homes: detail page → this room\'s photo + shared-space photos only;
     <img src="https://storage.googleapis.com/junehomes/media/residencepicture/30604/ffffffffffffffff.jpg">`;
   const d = june.parseDetail(l, html);
   assert.deepEqual(d.bedrooms, { value: 3, basis: 'structured' });
-  assert.deepEqual(d.roommates, { value: 2, basis: 'inferred' });
+  assert.equal(d.roommates, undefined);
+  assert.deepEqual(d.bathroomType, { value: 'shared', basis: 'calculated' }, '1 bath for 3 bedrooms is necessarily shared');
   assert.deepEqual(d.furnished, { value: true, basis: 'structured' });
   assert.equal(d.laundry.value, 'in_unit');
   assert.equal(d.pets.value, 'No pets');
@@ -134,7 +136,8 @@ test('normalizeListing fills every field with value/basis and sets photo status'
   assert.equal(n.id, 'x:1');
   assert.equal(n.dataKind, 'REAL');
   assert.deepEqual(n.bedrooms, { value: null, basis: null });
-  assert.equal(n.price.type, 'unknown');
+  assert.equal(n.price.status, 'not_listed');
+  assert.equal(n.listingType.value, 'UNKNOWN');
   assert.equal(n.photos.length, 0, 'non-https photos are dropped');
   assert.equal(n.photoStatus, 'none');
 });
@@ -159,7 +162,7 @@ test('dedupe within one source: reposts merge, templated June Homes rooms never 
   assert.equal(dedupe([mk('roomster', 1, 1200), mk('roomster', 2, 1200)]).length, 1, 'identical repost at same price merges');
   assert.equal(dedupe([mk('roomster', 1, 1200), mk('roomster', 2, 1300)]).length, 2, 'same text, different price stays separate');
   const tmpl = (n) => `This ${n}-square-foot room on New York City's Flatbush is a charming room in a 4-bedroom apartment.`;
-  assert.equal(dedupe([mk('junehomes', 1, 1100, tmpl(67)), mk('junehomes', 2, 1100, tmpl(67))]).length, 2, 'June Homes IDs are unique rooms');
+  assert.equal(dedupe([mk('junehomes', 1, 1100, tmpl(67)), mk('junehomes', 2, 1100, tmpl(67))], { uniqueIdSources: new Set(['junehomes']) }).length, 2, 'sources declaring uniqueIds never merge their own IDs');
 });
 
 test('dedupe: near-identical text + same price + same neighborhood merges; photos not combined on weak match', () => {

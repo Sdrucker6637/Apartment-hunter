@@ -6,6 +6,7 @@
 
 import { fetchText, jsonLdBlocks, decodeEntities } from '../http.js';
 import { parseListing } from '../parse.js';
+import { extractText } from '../extract.js';
 import { findNeighborhood } from '../neighborhoods.js';
 import { field } from '../schema.js';
 
@@ -58,10 +59,19 @@ export function parseItem(siteId, listItem) {
     price: Number.isFinite(price) && price > 0 ? { monthly: price, max: price, type: 'room_share', basis: 'structured' } : undefined,
     bedrooms: field(about.numberOfBedrooms ?? p.bedrooms, about.numberOfBedrooms != null ? 'structured' : 'explicit'),
     bathrooms: field(about.numberOfBathroomsTotal ?? p.bathrooms, about.numberOfBathroomsTotal != null ? 'structured' : 'explicit'),
-    roommates: field(p.roommates, p.roommatesSource === 'stated' ? 'explicit' : 'inferred'),
+    roommates: field(p.roommatesSource === 'stated' ? p.roommates : null, 'explicit'),
+    listingType: field(p.listingType, 'explicit'),
+    ...(() => {
+      const x = extractText({ title: title, text: description });
+      return {
+        furnished: field(x.furnished, 'explicit'),
+        utilitiesIncluded: field(x.utilitiesIncluded, 'explicit'),
+        postedBy: field(x.postedBy, 'explicit'),
+        ...(x.laundry === 'on_site' ? { laundry: field('on_site', 'explicit') } : {}),
+      };
+    })(),
     furnished: field(/furnished/i.test(item.name || '') ? true : null, 'explicit'),
     pets: field(about.petsAllowed != null ? (about.petsAllowed ? 'Pets allowed' : 'No pets') : null, 'structured'),
-    roomType: field('private', 'inferred'),
     moveIn: field(avail ? { date: avail, text: avail } : null, 'structured'),
     neighborhood: field(hood.neighborhood, hood.neighborhood ? 'structured' : null),
     borough: field(hood.borough, hood.borough ? 'inferred' : null),

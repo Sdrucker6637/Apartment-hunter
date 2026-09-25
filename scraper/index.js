@@ -33,18 +33,35 @@ async function readJson(url, fallback) {
   try { return JSON.parse(await readFile(url, 'utf8')); } catch { return fallback; }
 }
 
-// Coverage of key fields, for diagnostics.
-function coverage(listings) {
-  const n = listings.length || 1;
+// Real-data quality report for one source: coverage of each field (share of
+// retained listings where the field is known) and how much is inferred.
+const FIELD_KEYS = ['bedrooms', 'roommates', 'moveIn', 'neighborhood', 'borough', 'laundry', 'furnished', 'roomType', 'bathrooms', 'leaseLength', 'pets'];
+export function quality(listings) {
+  const n = listings.length;
+  if (!n) return null;
   const pct = (fn) => Math.round((listings.filter(fn).length / n) * 100);
+  const types = {};
+  for (const l of listings) types[l.listingType.value] = (types[l.listingType.value] || 0) + 1;
+  let inferred = 0;
+  for (const l of listings) for (const k of FIELD_KEYS) if (l[k]?.basis === 'inferred') inferred++;
   return {
-    price: pct((l) => l.price.monthly != null),
-    bedrooms: pct((l) => l.bedrooms.value != null),
-    roommates: pct((l) => l.roommates.value != null),
-    moveIn: pct((l) => l.moveIn.value != null),
-    neighborhood: pct((l) => l.neighborhood.value != null || l.borough.value != null),
-    laundry: pct((l) => l.laundry.value != null),
-    photos: pct((l) => l.photos.length > 0),
+    coverage: {
+      yourShare: pct((l) => l.price.share != null),
+      priceOrTotal: pct((l) => l.price.share != null || l.price.total != null),
+      listingType: pct((l) => l.listingType.value !== 'UNKNOWN'),
+      bedrooms: pct((l) => l.bedrooms.value != null),
+      roommatesStated: pct((l) => l.roommates.value != null),
+      neighborhood: pct((l) => l.neighborhood.value != null),
+      borough: pct((l) => l.borough.value != null),
+      moveIn: pct((l) => l.moveIn.value != null),
+      laundry: pct((l) => l.laundry.value != null),
+      furnished: pct((l) => l.furnished.value != null),
+      photos: pct((l) => l.photos.length > 0),
+    },
+    types,
+    inferredFields: inferred,
+    needsConfirmation: listings.filter((l) => l.price.status === 'needs_confirmation').length,
+    priceNotListed: listings.filter((l) => l.price.status === 'not_listed').length,
   };
 }
 
@@ -114,23 +131,31 @@ export async function run({ offline = false, dryRun = false, log = console.log, 
   for (const l of fresh) byId.set(l.id, l);
 
   const dropped = {};
-  const drop = (reason) => { dropped[reason] = (dropped[reason] || 0) + 1; };
+  const droppedBySource = {};
+  const drop = (reason, source) => {
+    dropped[reason] = (dropped[reason] || 0) + 1;
+    droppedBySource[source] ??= {};
+    droppedBySource[source][reason] = (droppedBySource[source][reason] || 0) + 1;
+  };
   const kept = [];
   for (const l of byId.values()) {
-    if (l.postType === 'seeking') { drop('seeking'); continue; }
-    if (l.price.monthly != null && l.price.monthly > config.maxShare) { drop('over budget'); continue; }
-    if (l.postedAt && now - Date.parse(l.postedAt) > config.maxAgeDays * 86400000) { drop('too old'); continue; }
-    if (l.lastSeenAt && now - Date.parse(l.lastSeenAt) > config.goneAfterDays * 86400000) { drop('no longer listed'); continue; }
+    if (l.postType === 'seeking') { drop('seeking', l.source); continue; }
+    if (l.price.share != null && l.price.share > config.maxShare) { drop('over budget', l.source); continue; }
+    if (l.postedAt && now - Date.parse(l.postedAt) > config.maxAgeDays * 86400000) { drop('too old', l.source); continue; }
+    if (l.lastSeenAt && now - Date.parse(l.lastSeenAt) > config.goneAfterDays * 86400000) { drop('no longer listed', l.source); continue; }
     kept.push(l);
   }
-  const listings = dedupe(kept);
+  const uniqueIdSources = new Set(ADAPTERS.filter((a) => a.uniqueIds).map((a) => a.id));
+  const listings = dedupe(kept, { uniqueIdSources });
   const merged = kept.length - listings.length;
 
   for (const st of statuses) {
     const mine = listings.filter((l) => l.source === st.id || l.sources.some((s) => s.source === st.id));
     st.inDataset = mine.length;
     st.withPhotos = mine.filter((l) => l.photos.length).length;
-    st.coverage = mine.length ? coverage(mine) : null;
+    st.retrieved = st.count;
+    st.discarded = droppedBySource[st.id] || {};
+    st.quality = quality(mine);
   }
 
   const status = {
@@ -149,8 +174,7 @@ export async function run({ offline = false, dryRun = false, log = console.log, 
     excluded: EXCLUDED,
   };
 
-  log(`result: ${listings.length} listings (${status.totals.withPhotos} with photos), ${merged} duplicates merged, dropped ${JSON.stringify(dropped)}`);
-  for (const st of statuses) log(`  ${st.id.padEnd(10)} ${String(st.status).padEnd(22)} fetched=${st.count} inDataset=${st.inDataset ?? 0} withPhotos=${st.withPhotos} coverage=${JSON.stringify(st.coverage)}${st.reason ? ` — ${st.reason}` : ''}`);
+  logSummary(status, log);
 
   if (!dryRun) {
     await mkdir(new URL('.', LISTINGS_PATH), { recursive: true });
@@ -158,6 +182,19 @@ export async function run({ offline = false, dryRun = false, log = console.log, 
     await writeFile(STATUS_PATH, JSON.stringify(status, null, 1) + '\n');
   }
   return { listings, status };
+}
+
+// Counts and statuses only — this is what appears in CI logs. Never listing
+// text, contacts, names, URLs of individual listings or HTML.
+export function logSummary(status, log = console.log) {
+  const t = status.totals;
+  for (const st of status.sources) {
+    const q = st.quality;
+    log(`${st.name}: ${st.inDataset ?? 0} listings (${st.retrieved ?? 0} retrieved) · status ${st.status}`
+      + (q ? ` · photos ${st.withPhotos}/${st.inDataset} · share known ${q.coverage.yourShare}% · needs confirmation ${q.needsConfirmation}` : ''));
+  }
+  log(`Total: ${t.listings} listings · photos ${t.withPhotos}/${t.listings} · photo checks ${t.photosLoaded}/${t.photosChecked} · duplicates merged ${t.duplicatesMerged}`);
+  log(`Errors: ${status.sources.filter((s) => ['SOURCE_BLOCKED', 'ENVIRONMENT_BLOCKED', 'LIVE_WITH_LIMITATIONS'].includes(s.status) && !s.inDataset).length}`);
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {

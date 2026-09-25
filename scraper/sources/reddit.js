@@ -4,6 +4,7 @@
 // (Responsible Builder Policy): REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET.
 
 import { parseListing } from '../parse.js';
+import { extractText } from '../extract.js';
 import { field } from '../schema.js';
 import { USER_AGENT } from '../http.js';
 
@@ -64,7 +65,17 @@ export function postToListing(d) {
     bedrooms: field(p.bedrooms, 'explicit'),
     bathrooms: field(p.bathrooms, 'explicit'),
     availableRooms: field(p.roomsAvailable, 'explicit'),
-    roommates: field(p.roommates, p.roommatesSource === 'stated' ? 'explicit' : 'inferred'),
+    roommates: field(p.roommatesSource === 'stated' ? p.roommates : null, 'explicit'),
+    listingType: field(p.listingType, 'explicit'),
+    ...(() => {
+      const x = extractText({ title: d.title, text: d.selftext || '' });
+      return {
+        furnished: field(x.furnished, 'explicit'),
+        utilitiesIncluded: field(x.utilitiesIncluded, 'explicit'),
+        postedBy: field(x.postedBy, 'explicit'),
+        ...(x.laundry === 'on_site' ? { laundry: field('on_site', 'explicit') } : {}),
+      };
+    })(),
     moveIn: field(p.moveIn, basis(p.moveIn)),
     neighborhood: field(p.neighborhood, basis(p.neighborhood)),
     borough: field(p.borough, p.borough ? (p.neighborhood ? 'inferred' : 'explicit') : null),

@@ -12,6 +12,7 @@ const INDEX = `${ORIGIN}/residences/new-york-city-ny?hometype=private_rooms`;
 
 export const meta = {
   id: 'junehomes',
+  uniqueIds: true, // every ID is a distinct bedroom; never merge two June Homes IDs
   name: 'June Homes',
   kind: 'Furnished rooms in managed shared apartments',
   access: 'Public pages; robots.txt allows; terms have no scraping clause (checked 2026-09-25)',
@@ -67,7 +68,7 @@ export function parseIndexItem(ld) {
     bedrooms: field(beds, 'explicit'),
     availableRooms: field(1, 'structured'),
     // June rents each bedroom separately; others may be occupied or vacant.
-    roommates: field(beds ? beds - 1 : null, 'inferred'),
+    listingType: field('ROOM_IN_SHARED_APARTMENT', 'structured'),
     roomType: field('private', 'structured'),
     neighborhood: field(hood.neighborhood, hood.neighborhood ? 'structured' : null),
     borough: field(hood.borough, hood.borough ? 'inferred' : null),
@@ -98,12 +99,11 @@ export function parseDetail(listing, html) {
   const beds = /Bedrooms\s+(\d+)/.exec(text)?.[1];
   if (beds) {
     out.bedrooms = field(+beds, 'structured');
-    out.roommates = field(+beds - 1, 'inferred');
-    out.totalPeople = field(+beds, 'inferred');
   }
   const baths = /\bBath\s+(\d+(?:\.\d)?)/.exec(text)?.[1];
   if (baths) out.bathrooms = field(+baths, 'structured');
-  if (beds && baths) out.bathroomType = field(+baths >= +beds ? 'private' : 'shared', 'inferred');
+  // Fewer bathrooms than bedrooms means the bathroom is necessarily shared.
+  if (beds && baths && +baths < +beds) out.bathroomType = field('shared', 'calculated');
 
   const avail = /Available (?:from|on)\s+(\d{2}\/\d{2}\/\d{4})/i.exec(text)?.[1];
   if (avail) {

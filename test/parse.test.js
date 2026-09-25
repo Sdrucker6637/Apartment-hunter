@@ -24,7 +24,7 @@ test('typical r/RoommatesNYC room post', () => {
   assert.deepEqual(l.contacts.emails, ['jess.bk@example.com']);
 });
 
-test('roommates estimated from bedrooms when not stated', () => {
+test('roommates are never estimated from bedrooms — "Not stated" instead', () => {
   const l = parseListing({
     title: 'Private room in 2br Astoria apartment - $1300',
     body: 'Laundry in the building. Move-in 10/15. Looking for a roommate who is clean.',
@@ -32,11 +32,30 @@ test('roommates estimated from bedrooms when not stated', () => {
   });
   assert.equal(l.price, 1300);
   assert.equal(l.bedrooms, 2);
-  assert.equal(l.roommates, 1);
-  assert.equal(l.roommatesSource, 'estimated');
+  assert.equal(l.roommates, null);
+  assert.equal(l.roommatesSource, null);
   assert.equal(l.laundry, 'in-building');
   assert.equal(l.neighborhood, 'Astoria');
   assert.equal(l.moveIn.date, '2026-10-15');
+});
+
+test('stated roommate phrasings vs. non-statements', () => {
+  const r = (t) => parseListing({ title: 'Room', body: t, postedAt: REF }).roommates;
+  assert.equal(r("You'll share the apartment with two others."), 2);
+  assert.equal(r('Me and my roommate are looking to fill the third room.'), 2);
+  assert.equal(r('I live here with my family of 3.'), null);
+  assert.equal(r('Looking for 2 roommates for our 4BR.'), null);
+  assert.equal(r('We need two housemates to join us.'), null);
+});
+
+test('listing type only from explicit wording', () => {
+  const t = (title, body = '') => parseListing({ title, body, postedAt: REF }).listingType;
+  assert.equal(t('Lease takeover: 2BR in Crown Heights'), 'LEASE_TAKEOVER');
+  assert.equal(t('Short-term sublease, master bedroom in LIC'), 'SUBLET');
+  assert.equal(t('Bedroom in 2Br 1B apt'), 'ROOM_IN_SHARED_APARTMENT');
+  assert.equal(t('2 rooms in crown heights available'), 'ROOM_IN_SHARED_APARTMENT');
+  assert.equal(t('2 bedroom apartment for rent'), 'ENTIRE_APARTMENT');
+  assert.equal(t('Great place near the park'), null);
 });
 
 test('price: total rent is never divided by bedrooms unless an even split is stated', () => {
@@ -120,4 +139,46 @@ test('date parsing rolls into next year', () => {
   assert.equal(parseDateToken('Jan 5', new Date('2026-11-20')).date, '2027-01-05');
   assert.equal(parseDateToken('10/1', new Date('2026-09-20')).date, '2026-10-01');
   assert.equal(parseDateToken('late November', new Date('2026-09-20')).date, '2026-11-25');
+});
+
+// Regression tests for bugs found by the real-data accuracy evaluation
+// (synthetic text reproducing the real phrasing).
+import { extractText } from '../scraper/extract.js';
+
+test('prices under $1,000 are found; weekly/daily amounts are not monthly rent', () => {
+  assert.equal(extractText({ title: 'New Listing', text: 'I am looking for a roommate. The monthly rent is $900 and the room is available immediately.' }).share, 900);
+  assert.equal(extractText({ title: 'Room share', text: 'Room share available. $160 a week, first week $200.' }).share, null);
+  assert.equal(extractText({ title: 'Sublet', text: 'Willing to sublet those days, $225 a day, 3 day minimum.' }).share, null);
+});
+
+test('rent next to a deposit line is still rent; "utilities included" does not cancel a price', () => {
+  assert.equal(extractText({ title: 'Private room', text: 'Rent: $1,200/month 🔐 Security Deposit: $1,200 Utilities: Included' }).share, 1200);
+  assert.equal(extractText({ title: '$900 per month, utilities included, Park Slope', text: 'Shared common spaces.' }).share, 900);
+});
+
+test('labeled fields: "Bedrooms: Studio", "Furnished: No"; furnished common areas are not a furnished room', () => {
+  const x = extractText({ title: 'Apt', text: 'Nice place. Residence Bedrooms: Studio Bathrooms: 1 Furnished: No Apartment Size: 600 Square feet' });
+  assert.equal(x.bedrooms, 0);
+  assert.equal(x.furnished, false);
+  assert.equal(extractText({ title: 'Room', text: 'Private room. Amenities of this home: Furnished Common Areas, Oven' }).furnished, null);
+});
+
+test('amenity lists give on-site laundry; "(in building)" notes give in-building', () => {
+  assert.equal(extractText({ title: 'Apt', text: 'Air Conditioning, Elevator, Laundry, Dishwasher, City View' }).laundry, 'on_site');
+  assert.equal(extractText({ title: 'Apt', text: 'Amenities: Laundry - Paid separately (in building), Oven' }).laundry, 'in_building');
+});
+
+test('commute references are not the listing location', () => {
+  const x = extractText({ title: 'Room with great light', text: 'Location: 181st Street. 20 minutes to Columbia University and Midtown.' });
+  assert.equal(x.neighborhood, null);
+  assert.equal(extractText({ title: 'Apt', text: 'A sunny 1 bedroom apartment in the heart of West Village.' }).neighborhood, 'West Village');
+});
+
+test('enumerated housemates are counted; "only you and I" is one', () => {
+  assert.equal(extractText({ title: 'Room', text: "you'll be living with one NB person, one guy, and two girls (including me)." }).roommates, 4);
+  assert.equal(extractText({ title: 'Room', text: "I'm renting 1 bedroom in a shared apartment where only you and I will live." }).roommates, 1);
+});
+
+test('seeker posts in apartment categories are flagged', () => {
+  assert.equal(extractText({ title: 'Ivey', text: 'Me and my husband are looking for a 1 bedroom apartment.' }).seeking, true);
 });
