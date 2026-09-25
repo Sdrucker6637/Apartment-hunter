@@ -1,12 +1,8 @@
 name: Scrape listings and publish site
 
+# Schedule disabled until each source is verified against live data.
 on:
-  schedule:
-    - cron: '17 */3 * * *' # every 3 hours
   workflow_dispatch:
-  push:
-    branches: [main]
-    paths: ['public/**', 'scraper/**', 'data/**']
 
 permissions:
   contents: write

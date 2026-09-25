@@ -1,0 +1,42 @@
+name: Source feasibility probe
+
+# Manually-triggered, read-only. Never commits or publishes anything.
+on:
+  workflow_dispatch:
+    inputs:
+      stage:
+        description: 'rules (robots.txt + terms only) or listings (fetch permitted listing pages)'
+        required: true
+        default: rules
+      only:
+        description: 'Comma-separated source ids (blank = all)'
+        required: false
+        default: ''
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run probe
+        run: |
+          case "$STAGE" in rules|listings) ;; *) echo "unknown stage: $STAGE"; exit 1;; esac
+          node "probe/$STAGE.js"
+        env:
+          STAGE: ${{ inputs.stage }}
+          ONLY: ${{ inputs.only }}
+          REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
+          REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: probe-${{ inputs.stage }}
+          path: probe-*.json
+          if-no-files-found: ignore
