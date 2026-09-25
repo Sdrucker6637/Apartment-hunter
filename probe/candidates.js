@@ -46,6 +46,11 @@ export const CANDIDATES = {
   platuni: { name: 'Platuni', origin: 'https://www.platuni.com', pages: ['/new-york', '/'] },
   transparentcity: { name: 'TransparentCity', origin: 'https://www.transparentcity.co', pages: ['/'] },
   snag3: { name: 'Snag sublets (NYC hub + terms)', origin: 'https://snagsublets.com', pages: ['/sublets/new-york', '/sublets/new-york/bushwick'], terms: ['https://snagsublets.com/legal/terms'] },
+  classifiedads: { name: 'ClassifiedAds.com', origin: 'https://www.classifiedads.com', pages: ['/search.php?keywords=room&cid=16&lid=rx10542&lname=New%20York', '/'] },
+  adpost: { name: 'Adpost', origin: 'https://www.adpost.com', pages: ['/us/real_estate/rooms_for_rent/new_york/', '/us/'] },
+  americanlisted: { name: 'AmericanListed', origin: 'https://newyork.americanlisted.com', pages: ['/rooms-shared/', '/'] },
+  trovit: { name: 'Trovit', origin: 'https://homes.trovit.com', pages: ['/rooms-for-rent-new-york', '/'] },
+  rentola: { name: 'Rentola', origin: 'https://rentola.com', pages: ['/for-rent/new-york-city/rooms', '/'] },
   sharedeasy: { name: 'SharedEasy', origin: 'https://sharedeasy.club', pages: ['/furnished-rooms-for-rent-nyc/'] },
 };
 
