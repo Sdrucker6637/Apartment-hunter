@@ -156,7 +156,7 @@ export function neighborhoodIndexLinks(html, prefix) {
   return [...new Set([...html.matchAll(re)].map((m) => decodeEntities(m[1])))].filter((p) => !p.endsWith(`/${prefix}/new-york-ny-usa`));
 }
 
-export async function fetchListings({ maxPages = 14, maxDetails = 45, log = () => {} } = {}) {
+export async function fetchListings({ maxPages = 14, maxDetails = 120, maxShare = Infinity, log = () => {} } = {}) {
   const items = [];
   const seen = new Set();
   let skipped = 0;
@@ -191,7 +191,10 @@ export async function fetchListings({ maxPages = 14, maxDetails = 45, log = () =
   if (skipped) log(`roomster: ${skipped} index page(s) skipped — disallowed by robots.txt`);
   let enriched = 0;
   const out = [];
+  let skippedOverBudget = 0;
   for (const item of items) {
+    // Listings already known to be over budget are dropped later; don't fetch their pages.
+    if (item.price?.monthly != null && item.price.monthly > maxShare) { skippedOverBudget++; out.push(item); continue; }
     if (enriched < maxDetails) {
       try {
         const { body } = await fetchText(item.originalUrl);
@@ -205,6 +208,6 @@ export async function fetchListings({ maxPages = 14, maxDetails = 45, log = () =
     out.push(fillFromText(item, item.description));
   }
   const inArea = out.filter((l) => !l.outOfArea);
-  log(`roomster: ${items.length} offers from ${pages} index pages, ${enriched} enriched from detail pages, ${out.length - inArea.length} outside NYC dropped`);
+  log(`roomster: ${items.length} offers from ${pages} index pages, ${enriched} enriched from detail pages, ${skippedOverBudget} over budget (not fetched), ${out.length - inArea.length} outside NYC dropped`);
   return inArea;
 }

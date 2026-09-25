@@ -12,8 +12,8 @@ const CHECKED = '2026-09-25';
 
 // Sources that run automatically (subject to credentials / enable flags).
 export const ADAPTERS = [
-  { ...junehomes.meta, run: (cfg, log) => junehomes.fetchListings({ ...cfg.junehomes, log }) },
-  { ...roomster.meta, run: (cfg, log) => roomster.fetchListings({ ...cfg.roomster, log }) },
+  { ...junehomes.meta, run: (cfg, log) => junehomes.fetchListings({ ...cfg.junehomes, maxShare: cfg.maxShare, log }) },
+  { ...roomster.meta, run: (cfg, log) => roomster.fetchListings({ ...cfg.roomster, maxShare: cfg.maxShare, log }) },
   { ...reddit.meta, run: (cfg, log) => reddit.fetchListings({ ...cfg.reddit, log }) },
   { ...jsonldSites.SITES.diggz.meta, requiresEnable: true, unverifiedReason: 'Terms page is behind a Cloudflare challenge; automated access not confirmed as permitted', run: (cfg, log) => jsonldSites.fetchListings('diggz', { log }) },
   { ...jsonldSites.SITES.roomies.meta, requiresEnable: true, unverifiedReason: 'Terms page is behind a Cloudflare challenge; automated access not confirmed as permitted', run: (cfg, log) => jsonldSites.fetchListings('roomies', { log }) },

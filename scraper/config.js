@@ -18,8 +18,8 @@ export const config = {
   // Sources that need an explicit opt-in (terms not verified).
   enabled: new Set(list(process.env.ENABLE_SOURCES, [])),
 
-  junehomes: { maxPages: num(process.env.JUNEHOMES_PAGES, 12), maxDetails: num(process.env.JUNEHOMES_DETAILS, 40) },
-  roomster: { maxPages: num(process.env.ROOMSTER_PAGES, 14), maxDetails: num(process.env.ROOMSTER_DETAILS, 45) },
+  junehomes: { maxPages: num(process.env.JUNEHOMES_PAGES, 12), maxDetails: num(process.env.JUNEHOMES_DETAILS, 100) },
+  roomster: { maxPages: num(process.env.ROOMSTER_PAGES, 14), maxDetails: num(process.env.ROOMSTER_DETAILS, 120) },
   reddit: {
     subreddits: list(process.env.SUBREDDITS, ['RoommatesNYC', 'NYCapartments']),
     pages: num(process.env.REDDIT_PAGES, 2),

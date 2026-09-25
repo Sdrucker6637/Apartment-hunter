@@ -135,7 +135,7 @@ export function neighborhoodIndexLinks(html) {
   return [...new Set([...html.matchAll(/href="(?:https:\/\/junehomes\.com)?(\/residences\/new-york-city-ny\/[a-z0-9-]+)\/?"/g)].map((m) => m[1]))];
 }
 
-export async function fetchListings({ maxPages = 12, maxDetails = 40, log = () => {} } = {}) {
+export async function fetchListings({ maxPages = 12, maxDetails = 100, maxShare = Infinity, log = () => {} } = {}) {
   const items = [];
   const seen = new Set();
   const skipped = [];
@@ -173,7 +173,10 @@ export async function fetchListings({ maxPages = 12, maxDetails = 40, log = () =
   if (skipped.length) log(`junehomes: ${skipped.length} index page(s) skipped — disallowed by robots.txt`);
   let enriched = 0;
   const out = [];
+  let skippedOverBudget = 0;
   for (const item of items) {
+    // Listings already known to be over budget are dropped later; don't fetch their pages.
+    if (item.price?.monthly != null && item.price.monthly > maxShare) { skippedOverBudget++; out.push(item); continue; }
     if (enriched < maxDetails) {
       try {
         const { body } = await fetchText(item.originalUrl);
@@ -186,6 +189,6 @@ export async function fetchListings({ maxPages = 12, maxDetails = 40, log = () =
     }
     out.push(item);
   }
-  log(`junehomes: ${items.length} rooms from ${visited.size} index pages, ${enriched} enriched from detail pages`);
+  log(`junehomes: ${items.length} rooms from ${visited.size} index pages, ${enriched} enriched from detail pages, ${skippedOverBudget} over budget (not fetched)`);
   return out;
 }
