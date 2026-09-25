@@ -1,0 +1,46 @@
+name: Scraping investigation
+
+# Manually triggered. One plain request per page type for the chosen sources
+# (see probe/investigate.js). The log shows response STRUCTURE only (status,
+# redirects, login wall, anti-bot markers, data formats, counts). Raw responses
+# may contain posts, so they leave the runner only ENCRYPTED with
+# .github/verify-pubkey.pem, on the `investigate-output` branch.
+on:
+  workflow_dispatch:
+    inputs:
+      only:
+        description: 'Comma-separated source ids (reddit,facebook,roomi)'
+        required: false
+        default: 'reddit,facebook,roomi'
+
+permissions:
+  contents: write
+
+jobs:
+  investigate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: node probe/investigate.js
+        env:
+          ONLY: ${{ inputs.only }}
+      - name: Encrypt raw responses and push to investigate-output
+        run: |
+          set -euo pipefail
+          tar czf results.tgz -C out .
+          openssl rand -out key.bin 32
+          openssl enc -aes-256-cbc -pbkdf2 -salt -in results.tgz -out results.tgz.enc -pass file:key.bin
+          openssl pkeyutl -encrypt -pubin -inkey .github/verify-pubkey.pem -in key.bin -out key.bin.enc
+          rm -rf key.bin results.tgz out
+          git config user.name "apartment-hunter-bot"
+          git config user.email "apartment-hunter-bot@users.noreply.github.com"
+          git checkout -q --orphan investigate-output
+          git rm -rqf --cached .
+          git add -f results.tgz.enc key.bin.enc
+          git commit -qm "Encrypted investigation output ($(date -u +%FT%TZ))"
+          git push -qf origin investigate-output
+          echo "pushed encrypted results"
