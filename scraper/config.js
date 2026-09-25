@@ -1,3 +1,5 @@
+import { parseGroups } from './sources/facebook.js';
+
 // Search criteria and per-source settings. Env vars override the defaults
 // so the GitHub Action (or you, locally) can tweak them without code changes.
 
@@ -20,6 +22,19 @@ export const config = {
 
   junehomes: { maxPages: num(process.env.JUNEHOMES_PAGES, 12), maxDetails: num(process.env.JUNEHOMES_DETAILS, 100) },
   roomster: { maxPages: num(process.env.ROOMSTER_PAGES, 14), maxDetails: num(process.env.ROOMSTER_DETAILS, 120) },
+  // Facebook Groups via Bright Data (see scraper/sources/facebook.js).
+  facebook: {
+    apiKey: process.env.BRIGHTDATA_API_KEY || '',
+    groups: parseGroups(process.env.FACEBOOK_GROUPS),
+    maxGroups: num(process.env.FACEBOOK_MAX_GROUPS, 3),
+    initialWindowDays: num(process.env.FACEBOOK_INITIAL_WINDOW_DAYS, 7),
+    maxWindowDays: num(process.env.FACEBOOK_MAX_WINDOW_DAYS, 7),
+    overlapHours: num(process.env.FACEBOOK_OVERLAP_HOURS, 6),
+    minHoursBetweenRuns: num(process.env.FACEBOOK_MIN_HOURS_BETWEEN_RUNS, 6),
+    maxWaitSeconds: num(process.env.FACEBOOK_MAX_WAIT_SECONDS, 600),
+    pollSeconds: num(process.env.FACEBOOK_POLL_SECONDS, 15),
+    maxRecordsWarn: num(process.env.FACEBOOK_MAX_RECORDS_WARN, 300),
+  },
   reddit: {
     subreddits: list(process.env.SUBREDDITS, ['RoommatesNYC', 'NYCapartments']),
     pages: num(process.env.REDDIT_PAGES, 2),

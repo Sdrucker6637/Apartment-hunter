@@ -119,6 +119,7 @@ export function normalizeListing(partial, { scrapedAt = new Date().toISOString()
       source: partial.source,
       fromListing: true,
       validation: 'unchecked',           // → 'ok' | 'failed' after scraper/photos.js
+      expiresAt: p.expiresAt || null,    // signed CDN links (e.g. Facebook) stop working after this
     })),
     photoCount: photos.length,
     photoStatus: photos.length ? 'available' : (partial.photoStatus || 'none'), // available | source_only | none

@@ -9,7 +9,7 @@
 
 import { readFile, writeFile, mkdir } from 'node:fs/promises';
 import { config } from './config.js';
-import { SOURCES, ADAPTERS, EXCLUDED } from './sources/index.js';
+import { SOURCES, EXCLUDED } from './sources/index.js';
 import { normalizeListing } from './schema.js';
 import { validatePhotos } from './photos.js';
 import { dedupe } from './dedupe.js';
@@ -69,15 +69,15 @@ export function quality(listings) {
   };
 }
 
-export async function run({ offline = false, dryRun = false, log = console.log, now = Date.now() } = {}) {
+export async function run({ offline = false, dryRun = false, log = console.log, now = Date.now(), sources = SOURCES, previousListings = null } = {}) {
   const scrapedAt = new Date(now).toISOString();
-  const previous = (await readJson(LISTINGS_PATH, { listings: [] })).listings || [];
+  const previous = previousListings ?? ((await readJson(LISTINGS_PATH, { listings: [] })).listings || []);
   const prevStatus = await readJson(STATUS_PATH, { sources: [] });
   const statuses = [];
   const fresh = [];
   const liveSources = new Set();
 
-  for (const src of SOURCES) {
+  for (const src of sources) {
     const prev = prevStatus.sources?.find((s) => s.id === src.id);
     const st = {
       id: src.id, name: src.name, domain: src.domain, kind: src.kind, access: src.access, photos: src.photos,
@@ -103,6 +103,10 @@ export async function run({ offline = false, dryRun = false, log = console.log, 
       Object.assign(st, { status: 'AUTH_REQUIRED', reason: src.authReason || 'Credentials not configured.' });
       continue;
     }
+    if (src.notConfigured?.(config)) {
+      Object.assign(st, { status: 'UNVERIFIED', reason: src.notConfiguredReason || 'Not configured.' });
+      continue;
+    }
     st.enabled = true;
     if (offline) {
       Object.assign(st, { status: prev?.status ?? 'UNVERIFIED', reason: 'offline rebuild — not fetched this run', count: prev?.count ?? 0 });
@@ -111,16 +115,25 @@ export async function run({ offline = false, dryRun = false, log = console.log, 
     const started = Date.now();
     const notes = [];
     try {
-      const partials = await src.run(config, (m) => { notes.push(m); log(m); });
+      const partials = await src.run(config, (m) => { notes.push(m); log(m); }, { previous: prev || null, now });
+      if (partials.sourceStats) st.sourceStats = partials.sourceStats;
+      if (partials.skipped) {
+        // The adapter chose not to collect this run (e.g. a cost guard); keep its previous state.
+        Object.assign(st, { status: prev?.status ?? 'UNVERIFIED', reason: partials.skipped, sourceStats: prev?.sourceStats ?? null });
+        st.durationMs = Date.now() - started;
+        continue;
+      }
       const listings = partials.map((p) => normalizeListing(p, { scrapedAt }));
       for (const l of listings) l.lastSeenAt = scrapedAt;
       fresh.push(...listings);
       st.count = listings.length;
       // LIVE means real listings were retrieved AND parsed this run.
       st.status = listings.length ? 'LIVE' : 'LIVE_WITH_LIMITATIONS';
-      if (listings.length) {
+      if (listings.length || (src.incremental && partials.sourceStats?.recordsRetrieved > 0)) {
+        // Incremental sources succeed when records came back, even if none were new listings.
         liveSources.add(src.id);
         st.lastSuccessAt = scrapedAt;
+        if (!listings.length) st.reason = 'Records retrieved, but none were new housing listings in this window';
       } else {
         st.reason = 'Pages fetched but no listings parsed';
         st.lastFailureAt = scrapedAt;
@@ -161,11 +174,16 @@ export async function run({ offline = false, dryRun = false, log = console.log, 
 
   // Merge: fresh listings replace previous ones; keep previous listings from
   // sources that failed this run (a transient outage shouldn't empty the site).
+  // Incremental sources (e.g. Facebook: only posts since the last run are
+  // fetched) keep their earlier listings; age limits still apply below.
+  const incrementalSources = new Set(sources.filter((a) => a.incremental).map((a) => a.id));
   const byId = new Map();
   for (const l of previous) {
     const src = l.source;
-    if (liveSources.has(src)) continue; // re-fetched this run
-    byId.set(l.id, { ...l, carriedOver: true });
+    if (liveSources.has(src) && !incrementalSources.has(src)) continue; // re-fetched this run
+    // Signed photo links that have expired no longer load; drop them.
+    const photos = (l.photos || []).filter((p) => !p.expiresAt || Date.parse(p.expiresAt) > now);
+    byId.set(l.id, { ...l, photos, photoCount: photos.length, ...(photos.length ? {} : { photoStatus: l.originalUrl ? 'source_only' : 'none' }), carriedOver: true });
   }
   for (const l of fresh) byId.set(l.id, l);
 
@@ -178,15 +196,17 @@ export async function run({ offline = false, dryRun = false, log = console.log, 
   };
   const kept = [];
   for (const l of byId.values()) {
+    // Production output is REAL data only: sample/fixture listings never pass.
+    if (l.dataKind !== 'REAL') { drop('not real data', l.source); continue; }
     if (l.postType === 'seeking') { drop('seeking', l.source); continue; }
     if (l.price.share != null && l.price.share > config.maxShare) { drop('over budget', l.source); continue; }
     // Age: the later of posted and last-edited-on-source (an active listing the lister updated recently is current).
     const dates = [l.postedAt, l.sourceUpdatedAt].filter(Boolean).map(Date.parse).filter(Number.isFinite);
     if (dates.length && now - Math.max(...dates) > config.maxAgeDays * 86400000) { drop('too old', l.source); continue; }
-    if (l.lastSeenAt && now - Date.parse(l.lastSeenAt) > config.goneAfterDays * 86400000) { drop('no longer listed', l.source); continue; }
+    if (!incrementalSources.has(l.source) && l.lastSeenAt && now - Date.parse(l.lastSeenAt) > config.goneAfterDays * 86400000) { drop('no longer listed', l.source); continue; }
     kept.push(l);
   }
-  const uniqueIdSources = new Set(ADAPTERS.filter((a) => a.uniqueIds).map((a) => a.id));
+  const uniqueIdSources = new Set(sources.filter((a) => a.run && a.uniqueIds).map((a) => a.id));
   const listings = dedupe(kept, { uniqueIdSources });
   const merged = kept.length - listings.length;
 
@@ -234,6 +254,10 @@ export function logSummary(status, log = console.log) {
     if (!st.enabled) { log(`${st.name}: not run · status ${st.status}`); continue; }
     log(`${st.name}: ${st.inDataset ?? 0} listings (${st.retrieved ?? 0} retrieved, ${Object.values(st.discarded || {}).reduce((a, b) => a + b, 0)} discarded) · status ${st.status}`
       + (q ? ` · photos ${st.withPhotos}/${st.inDataset} · share known ${q.coverage.yourShare}% · needs confirmation ${q.needsConfirmation}` : ''));
+  }
+  for (const st of status.sources.filter((x) => x.sourceStats?.recordsRetrieved != null)) {
+    const x = st.sourceStats;
+    log(`${st.name} via ${x.provider}: ${x.groups.length} group(s) · ${x.recordsRetrieved} records (${x.errorRecords} errors) · ${x.housingListings} housing listings · rejected ${Object.entries(x.rejected).map(([k, v]) => `${k} ${v}`).join(', ')} · ${x.recordsWithImages} posts with image URLs`);
   }
   log(`Total: ${t.listings} listings · photos ${t.withPhotos}/${t.listings} · photo checks ${t.photosLoaded}/${t.photosChecked} · duplicates merged ${t.duplicatesMerged}`);
   log(`Errors: ${status.sources.filter((s) => s.lastFailureAt === status.generatedAt).length}`);

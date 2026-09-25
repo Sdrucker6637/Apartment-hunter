@@ -30,6 +30,10 @@ export function sanitizeListing(l) {
 // Returns a list of problems; empty means publishable.
 export function audit(listingsDoc, statusDoc) {
   const problems = [];
+  // Production output must be REAL data only (never SAMPLE/fixture listings).
+  if (listingsDoc.dataKind && listingsDoc.dataKind !== 'REAL') problems.push('listings.json is not REAL data');
+  if (statusDoc?.dataKind && statusDoc.dataKind !== 'REAL') problems.push('status.json is not REAL data');
+  for (const l of listingsDoc.listings || []) if (l.dataKind !== 'REAL') problems.push(`${l.id}: listing is not REAL data`);
   // Photo and listing URLs legitimately contain long digit runs; check text fields only.
   for (const l of listingsDoc.listings || []) {
     for (const k of ['title', 'description', 'address']) {

@@ -42,7 +42,7 @@ robots.txt, terms, blockers and the next step.
 | **Roomster** | ✅ LIVE | Index and listing pages fetched and parsed (JSON-LD + gallery). robots.txt allows this, and the terms have no scraping clause. |
 | **Roomi** (roomiapp.com) | ⛔ PERMISSION_REQUIRED | Technically works: the NYC search page is server-rendered with about 90 structured listings (price, room type, bedrooms, move-in, lease, map pin, photos). The adapter parses them. robots.txt allows the search page and disallows `/listings/`. But the terms prohibit "webcrawler, spidering or other automated means to access, copy, index, process and/or store any Content … other than as expressly authorized by us". The adapter stays disabled until Roomi authorizes it (`ENABLE_SOURCES=roomi`). |
 | **Reddit** | 🔑 AUTH_REQUIRED | robots.txt is `Disallow: /`. Subreddit pages, `.json`, search, infinite scroll, old.reddit and post pages all returned **HTTP 403** ("blocked by network security"). Only the RSS feed answered, with 3 items. The User Agreement prohibits scraping without written consent. The permitted route is the official Data API. That adapter is built and waits for `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET`. |
-| **Facebook** | 🔒 AUTH_REQUIRED | 7 public NYC housing groups and Marketplace were tested: every URL (www, m., mbasic.) **redirects to the login page**. robots.txt disallows everything without written permission. The Graph API needs an app, and there is no Groups or Marketplace read API. There is no legitimate automated path. |
+| **Facebook** (Groups) | ⏳ UNVERIFIED until a real run | Collected through **Bright Data's** "Facebook - Posts by group URL" API (dataset `gd_lz11l67o2cb3r0lkj3`). Only public Groups are collected, logged off. This project never contacts facebook.com and uses no login, cookies or browser. Bright Data is not authorized by Meta; see the notes in the Sources panel. Needs `BRIGHTDATA_API_KEY` and `FACEBOOK_GROUPS`. |
 | **Diggz**, **Roomies.com** | ⏸ UNVERIFIED | Pages parse, but the terms pages are behind a Cloudflare challenge. Enable with `ENABLE_SOURCES` only after reading their terms. |
 | Craigslist, SpareRoom, Listings Project, StreetEasy, Leasebreak, PadMapper, Zumper, Bungalow, Nooklyn, Coliving.com, HousingAnywhere, PadSplit, Kopa | ⛔ PERMISSION_REQUIRED | Terms or robots.txt prohibit automated access (the exact clauses are in `scraper/sources/index.js`) |
 | RentHop, Outpost Club, HotPads, Bedly, Furnished Finder | 🚫 BLOCKED | Anti-bot challenge (HTTP 403) |
@@ -76,6 +76,31 @@ npm start        # http://localhost:3000
 
 Reddit needs an approved Reddit Data API app. Set `REDDIT_CLIENT_ID` and
 `REDDIT_CLIENT_SECRET`.
+
+Facebook Groups need a Bright Data API key and at least one public Group:
+
+```bash
+BRIGHTDATA_API_KEY=… FACEBOOK_GROUPS='["https://www.facebook.com/groups/<group>/"]' npm run scrape
+```
+
+In GitHub, add `BRIGHTDATA_API_KEY` as a repository **secret** and
+`FACEBOOK_GROUPS` as a repository **variable** (Settings → Secrets and
+variables → Actions). Each run asks Bright Data only for posts since the last
+successful run, minus a 6-hour overlap. A few settings cap cost (Bright Data
+bills per record):
+
+| Setting | Default | What it does |
+| --- | --- | --- |
+| `FACEBOOK_MAX_WINDOW_DAYS` | 7 | Longest date window a run can request |
+| `FACEBOOK_MIN_HOURS_BETWEEN_RUNS` | 6 | Skips collection if the last success was more recent |
+| `FACEBOOK_MAX_GROUPS` | 3 | Most Groups queried per run |
+| `FACEBOOK_MAX_WAIT_SECONDS` | 600 | Gives up after this; a collection is never re-triggered |
+
+Posts are kept only when the text is a housing offer. Seeking, ISO and
+"anyone know a place" posts are rejected. Prices, roommates and move-in dates
+go through the same conservative rules as every other source. Poster names
+and profiles are never stored. Facebook image links expire, so expired photos
+are dropped.
 
 ## Architecture
 

@@ -13,9 +13,7 @@
 // fallback to them. The permitted route for the same data is the Data API
 // with a registered, approved app: REDDIT_CLIENT_ID / REDDIT_CLIENT_SECRET.
 
-import { parseListing } from '../parse.js';
-import { extractText } from '../extract.js';
-import { field } from '../schema.js';
+import { textPostListing } from './common.js';
 import { USER_AGENT } from '../http.js';
 
 export const meta = {
@@ -55,48 +53,21 @@ export function redditPhotos(d) {
 }
 
 export function postToListing(d) {
-  const text = `${d.title}\n${d.selftext || ''}`;
-  const p = parseListing({ title: d.title, body: d.selftext || '', flair: d.link_flair_text || '', postedAt: new Date(d.created_utc * 1000).toISOString() });
-  if (p.postType === 'seeking') return null;
   const author = d.author && d.author !== '[deleted]' ? d.author : null;
   const url = `https://www.reddit.com${d.permalink}`;
-  const basis = (b) => (b ? 'explicit' : null);
+  const listing = textPostListing({
+    title: d.title, body: d.selftext || '', flair: d.link_flair_text || '', postedAt: new Date(d.created_utc * 1000).toISOString(),
+  });
+  if (!listing) return null;
   return {
+    ...listing,
     source: 'reddit',
     sourceId: d.id,
     sourceLabel: `r/${d.subreddit}`,
     originalUrl: url,
-    title: d.title,
-    description: d.selftext || '',
-    postType: p.postType,
-    price: p.price != null ? { monthly: p.price, max: p.priceMax, type: p.priceType, basis: p.priceBasis === 'likely' ? 'explicit' : p.priceBasis } : { monthly: null, type: p.priceType, basis: null },
-    priceConfidence: p.priceBasis, // 'likely' kept separately so the UI can show "probably your share"
-    totalRent: field(p.totalRent, 'explicit'),
-    bedrooms: field(p.bedrooms, 'explicit'),
-    bathrooms: field(p.bathrooms, 'explicit'),
-    availableRooms: field(p.roomsAvailable, 'explicit'),
-    roommates: field(p.roommatesSource === 'stated' ? p.roommates : null, 'explicit'),
-    listingType: field(p.listingType, 'explicit'),
-    ...(() => {
-      const x = extractText({ title: d.title, text: d.selftext || '' });
-      return {
-        furnished: field(x.furnished, 'explicit'),
-        utilitiesIncluded: field(x.utilitiesIncluded, 'explicit'),
-        postedBy: field(x.postedBy, 'explicit'),
-        ...(x.laundry === 'on_site' ? { laundry: field('on_site', 'explicit') } : {}),
-      };
-    })(),
-    moveIn: field(p.moveIn, basis(p.moveIn)),
-    neighborhood: field(p.neighborhood, basis(p.neighborhood)),
-    borough: field(p.borough, p.borough ? (p.neighborhood ? 'calculated' : 'explicit') : null),
-    laundry: field(p.laundry && p.laundry.replace('-', '_'), 'explicit'),
     contactUrl: author ? `https://www.reddit.com/message/compose/?to=${encodeURIComponent(author)}` : url,
     contactMethod: author ? `Reddit message to u/${author}` : 'Reply on Reddit',
-    contactEmails: p.contacts.emails,
-    contactPhones: p.contacts.phones,
     photos: redditPhotos(d),
-    postedAt: new Date(d.created_utc * 1000).toISOString(),
-    rawTextLength: text.length,
   };
 }
 

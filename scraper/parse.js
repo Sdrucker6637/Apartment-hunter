@@ -306,6 +306,8 @@ export function findContacts(text) {
 //             null         — unknown / needs confirmation
 const EVEN_SPLIT_RE = /split (?:(?:it|the rent|rent|everything)\s+)?(?:evenly|equally|down the middle|\d+ ways|(?:two|three|four) ways)|divided (?:evenly|equally)|(?:even|equal) split|split 50\/50/i;
 const SPLIT_WAYS_RE = /split (\d|two|three|four) ways/i;
+// "split evenly between 2 people", "split equally among three of us"
+const SPLIT_PEOPLE_RE = /(?:split|divided)\b[^.\n]{0,25}?\b(?:between|among|by)\s+(\d|two|three|four)\s+(?:people|persons|roommates|roomies|of us|tenants)\b/i;
 const ROOM_PRICE_CONTEXT = /(?:room|bedroom)(?:\s+[a-z0-9]{1,2}\b)?\s+(?:is\s+|available\s+|for rent\s+|goes\s+)?(?:for|at|is|:|-|–|—)?\s*(?:only\s+|just\s+)?$|(?:private|master|available|open|your|the|furnished|sunny|large|small|big)\s+(?:room|bedroom)[^.$\n]{0,25}$/i;
 const LIKELY_SHARE_MAX = 2200; // a single plain amount above this in a multi-bedroom post is probably the whole unit
 
@@ -326,7 +328,7 @@ function pickSharePrice(prices, text, { kind, bedrooms, roomsAvailable }) {
     ?? (plain.length === 1 && bedrooms >= 2 && plain[0].amount > LIKELY_SHARE_MAX ? plain[0].amount : null);
   if (wholeAmount != null) {
     if (EVEN_SPLIT_RE.test(text)) {
-      const ways = SPLIT_WAYS_RE.exec(text);
+      const ways = SPLIT_WAYS_RE.exec(text) || SPLIT_PEOPLE_RE.exec(text);
       const people = ways ? ({ two: 2, three: 3, four: 4 }[ways[1].toLowerCase()] ?? +ways[1]) : bedrooms;
       if (people >= 2) {
         const share = Math.round(wholeAmount / people);

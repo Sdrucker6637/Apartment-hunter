@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { sanitizeListing, audit, redact } from '../scripts/sanitize.js';
 
-const mk = (over) => ({ id: 'roomster:1', source: 'roomster', title: 'Room', description: '', contactEmails: [], contactPhones: [], address: null, ...over });
+const mk = (over) => ({ id: 'roomster:1', source: 'roomster', dataKind: 'REAL', title: 'Room', description: '', contactEmails: [], contactPhones: [], address: null, ...over });
 
 test('sanitize removes emails and phone numbers but keeps prices, dates and listing numbers', () => {
   assert.equal(redact('Text me at (917) 555-0123 or 917.555.0199, email jo.doe+nyc@example.com'), 'Text me at [phone removed] or [phone removed], email [email removed]');

@@ -17,6 +17,7 @@ import * as junehomes from './junehomes.js';
 import * as roomster from './roomster.js';
 import * as roomi from './roomi.js';
 import * as reddit from './reddit.js';
+import * as facebook from './facebook.js';
 import * as jsonldSites from './jsonld-sites.js';
 
 const CHECKED = '2026-09-25';
@@ -76,24 +77,26 @@ export const SOURCES = [
     nextStep: 'Register a Reddit app (reddit.com/prefs/apps, "script" or "web" type), request Data API access under the Responsible Builder Policy, then add REDDIT_CLIENT_ID and REDDIT_CLIENT_SECRET as repository secrets. The adapter is already built.',
   },
   {
-    id: 'facebook', name: 'Facebook', domain: 'facebook.com', kind: 'NYC housing groups and Marketplace rentals',
+    ...facebook.meta, domain: 'facebook.com (via Bright Data)', enabledByDefault: true,
+    needsCredentials: (cfg) => !cfg.facebook.apiKey,
+    authReason: 'BRIGHTDATA_API_KEY is not set (repository secret). Facebook Groups are collected through Bright Data\'s API.',
+    notConfigured: (cfg) => !cfg.facebook.groups.length,
+    notConfiguredReason: 'FACEBOOK_GROUPS is not configured (repository variable: one or more public Facebook Group URLs).',
+    run: (cfg, log, ctx) => facebook.fetchListings(cfg, log, ctx),
     review: {
-      checkedAt: CHECKED, technicallyAccessible: false, scrapingTested: true, termsReviewed: true, automatedAccessPermitted: 'no',
-      robots: '"Disallow: /" for all agents; header says crawling is "prohibited unless you have express written permission from Facebook".',
-      pagesTested: ['/groups/NYCRooms', '/groups/spareroomnyc', '/groups/new.york.housing.and.roommates', '/groups/1207463126375923', '/groups/roommatesnyc', '/groups/NewYorkRoommates', '/groups/1225966920763001', 'm.facebook.com/groups/NYCRooms', 'mbasic.facebook.com/groups/NYCRooms', '/marketplace/nyc/propertyrentals', '/marketplace/nyc/search?query=room for rent', 'graph.facebook.com/v21.0/NYCRooms/feed'],
-      pagination: 'n/a — no content served', photos: 'n/a',
-      blockers: [
-        'Every group and Marketplace URL redirects (302) to the login page, including groups listed as public',
-        'Graph API: Meta removed the Groups API and its permissions (groups_access_member_info, publish_to_groups) from every API version on 2024-04-22; no Login permission grants reading group posts, and there is no Marketplace read API',
-        'Terms: "You may not access or collect data from our Products using automated means (without our prior permission) … regardless of whether such automated access or collection is undertaken while logged-in" — so automating your own logged-in session is not permitted either',
-        'Authenticated-session approach (reviewed 2026-09-25, not built): a scheduled Playwright worker reusing a saved Facebook login is "automated means" under the terms above, which apply while logged in; a dedicated scraper account also breaks the Terms of Service ("Create only one account (your own)", real name)',
-        'Open-source scrapers reviewed 2026-09-25 (code read): danielsha-brd/facebook-posts-by-group-url-scraper is a thin client for Bright Data\'s paid API (public groups only, logged-off collection via rotating proxies + CAPTCHA solving, not Meta-authorized); lesander/fbgs (2021, Selenium, logs in with a password, stale mobile markup); ChocoData-com/facebook-group-scraper (group name/description/member count only — no posts); passivebot/facebook-marketplace-scraper (Marketplace, hard-coded email/password login); psoman-star/FbExtractApp (Messenger-message demo; README sells multi-account/proxy "anti-ban" automation). None is a legitimate path to group posts',
-        'Meta Content Library (includes public-group posts) is for approved researchers via an application, used inside Meta\'s clean-room environment; not available to a personal listings app',
+      checkedAt: CHECKED, technicallyAccessible: 'partial', scrapingTested: false, termsReviewed: true, automatedAccessPermitted: 'unclear',
+      robots: 'Not applicable to us: we do not request facebook.com. Bright Data collects the posts; facebook.com/robots.txt disallows all crawling without written permission.',
+      pagesTested: ['Direct (2026-09-25): 7 public NYC housing groups, m./mbasic. group pages and Marketplace all redirect to the login page; Graph API needs an app'],
+      pagination: 'Date window per run (start_date / end_date); incremental since the last successful run',
+      photos: 'Post images only if Bright Data returns them for group posts — to be confirmed with real output (Facebook CDN links expire)',
+      termsNotes: [
+        'Collection provider: Bright Data ("Facebook - Posts by group URL", dataset gd_lz11l67o2cb3r0lkj3). Logged-off, public Groups only; private/members-only Groups return nothing.',
+        'Not authorized by Meta. Meta\'s terms require its prior permission for automated collection (logged in or not); in Meta v. Bright Data (N.D. Cal., Jan 2024) the court held Meta\'s then-current terms did not bar Bright Data\'s logged-off collection of public data, and Meta dropped its remaining claims. Meta has since revised its terms.',
+        'Bright Data\'s service uses rotating proxies and CAPTCHA handling on its side. Nothing in this project logs in to Facebook, uses cookies or session tokens, or contacts facebook.com.',
+        'Poster names and profile links from Bright Data records are never stored; contact details in post text are removed by the sanitizer before publishing.',
       ],
     },
-    defaultStatus: 'AUTH_REQUIRED',
-    reason: 'Tested 7 public NYC housing groups and 2 Marketplace pages: every one redirects to Facebook\'s login page, so no listing content is served without an account. Automated access also needs Meta\'s written permission.',
-    nextStep: 'No legitimate automated path today, including with your own Facebook login. Only Meta\'s written permission under its Automated Data Collection Terms would change this.',
+    nextStep: 'Add BRIGHTDATA_API_KEY (secret) and FACEBOOK_GROUPS (variable), then run Actions → Scrape listings → mode: verify to test with real Group posts.',
   },
   {
     ...jsonldSites.SITES.diggz.meta, domain: 'diggz.co', enabledByDefault: false,
