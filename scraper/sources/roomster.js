@@ -4,14 +4,12 @@
 // poster requires a Roomster account, so contact goes via the listing page.
 // Data: schema.org ItemList JSON-LD on index pages; detail pages add geo + gallery.
 
-import { fetchText, jsonLdBlocks, pageText, decodeEntities } from '../http.js';
+import { fetchText, jsonLdBlocks, pageText, decodeEntities, RobotsDisallowedError } from '../http.js';
 import { parseListing } from '../parse.js';
 import { findNeighborhood } from '../neighborhoods.js';
 import { field } from '../schema.js';
 
 const ORIGIN = 'https://roomster.com';
-// NYC bounding box used by Roomster's own pagination links.
-const BBOX = 'search_params.geo.lat_sw=40.496134&search_params.geo.lng_sw=-74.255591&search_params.geo.lat_ne=40.915533&search_params.geo.lng_ne=-73.700009';
 const INDEXES = [
   { path: '/rooms-for-rent/new-york-ny-usa', kind: 'room' },
   { path: '/apartments-for-rent/new-york-ny-usa', kind: 'apartment' },
@@ -125,22 +123,46 @@ export function parseDetail(listing, html) {
   return fillFromText(out, `${out.description}\n${text.slice(0, 4000)}`);
 }
 
-export async function fetchListings({ maxPages = 3, maxDetails = 45, log = () => {} } = {}) {
+// robots.txt disallows "?search_params" pagination, so we visit the
+// per-neighborhood index pages Roomster links to (plain paths, allowed).
+export function neighborhoodIndexLinks(html, prefix) {
+  const re = new RegExp(`href="(?:https:\\/\\/(?:www\\.)?roomster\\.com)?(\\/${prefix}\\/[a-z0-9'&#;-]+-new-york-ny-usa)"`, 'g');
+  return [...new Set([...html.matchAll(re)].map((m) => decodeEntities(m[1])))].filter((p) => !p.endsWith(`/${prefix}/new-york-ny-usa`));
+}
+
+export async function fetchListings({ maxPages = 14, maxDetails = 45, log = () => {} } = {}) {
   const items = [];
   const seen = new Set();
+  let skipped = 0;
+  let pages = 0;
   for (const { path, kind } of INDEXES) {
-    for (let page = 1; page <= maxPages; page++) {
-      const url = `${ORIGIN}${path}${page > 1 ? `?${BBOX}&search_params.page_number=${page}` : ''}`;
-      const { body } = await fetchText(url);
+    const prefix = path.split('/')[1];
+    const queue = [path];
+    const visited = new Set();
+    while (queue.length && visited.size < Math.ceil(maxPages / INDEXES.length)) {
+      const p = queue.shift();
+      if (visited.has(p)) continue;
+      visited.add(p);
+      let body;
+      try {
+        ({ body } = await fetchText(ORIGIN + p));
+      } catch (err) {
+        if (err instanceof RobotsDisallowedError) { skipped++; continue; }
+        if (visited.size === 1 && !items.length) throw err;
+        log(`roomster: index page failed (${err.name})`);
+        continue;
+      }
+      pages++;
       const list = jsonLdBlocks(body).flatMap((b) => b.itemListElement || b.mainEntity?.itemListElement || []);
       const parsed = list.map((li) => parseIndexItem(li, kind)).filter(Boolean);
       const fresh = parsed.filter((l) => !seen.has(l.sourceId));
       fresh.forEach((l) => seen.add(l.sourceId));
       items.push(...fresh);
-      log(`roomster: ${path} page ${page} -> ${list.length} items, ${parsed.length} offers`);
-      if (!list.length) break;
+      log(`roomster: ${prefix} index ${visited.size} -> ${list.length} items, ${parsed.length} offers, ${fresh.length} new`);
+      for (const next of neighborhoodIndexLinks(body, prefix)) if (!visited.has(next) && !queue.includes(next)) queue.push(next);
     }
   }
+  if (skipped) log(`roomster: ${skipped} index page(s) skipped — disallowed by robots.txt`);
   let enriched = 0;
   const out = [];
   for (const item of items) {
@@ -151,11 +173,11 @@ export async function fetchListings({ maxPages = 3, maxDetails = 45, log = () =>
         enriched++;
         continue;
       } catch (err) {
-        log(`roomster: detail failed (${err.message})`);
+        log(`roomster: detail failed (${err.name})`);
       }
     }
     out.push(fillFromText(item, item.description));
   }
-  log(`roomster: ${items.length} offers, ${enriched} enriched from detail pages`);
+  log(`roomster: ${items.length} offers from ${pages} index pages, ${enriched} enriched from detail pages`);
   return out;
 }

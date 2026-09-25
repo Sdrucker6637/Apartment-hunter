@@ -83,10 +83,14 @@ export async function run({ offline = false, dryRun = false, log = console.log, 
         st.lastSuccessAt = scrapedAt;
       }
       if (!listings.length && !adapter.manual) st.reason = 'Fetched successfully but found no listings';
+      const limits = [];
       const detailFailures = notes.filter((n) => /detail failed/.test(n)).length;
-      if (detailFailures) {
+      if (detailFailures) limits.push(`${detailFailures} detail page(s) failed; those listings have fewer details`);
+      const robotsSkips = notes.find((n) => /disallowed by robots\.txt/.test(n));
+      if (robotsSkips) limits.push(`${robotsSkips.replace(/^[a-z]+: /, '')} (coverage limited to pages robots.txt allows)`);
+      if (limits.length && listings.length) {
         st.status = 'LIVE_WITH_LIMITATIONS';
-        st.reason = `${detailFailures} detail page(s) failed; those listings have fewer details`;
+        st.reason = limits.join('; ');
       }
     } catch (err) {
       st.status = classifyError(err);

@@ -3,7 +3,7 @@
 // /residences/*, terms of use contain no scraping/automated-access clause.
 // Data: schema.org Apartment JSON-LD on the index and detail pages.
 
-import { fetchText, jsonLdBlocks, pageText } from '../http.js';
+import { fetchText, jsonLdBlocks, pageText, RobotsDisallowedError } from '../http.js';
 import { findNeighborhood } from '../neighborhoods.js';
 import { field } from '../schema.js';
 
@@ -110,18 +110,42 @@ export function parseDetail(listing, html) {
   return out;
 }
 
-export async function fetchListings({ maxPages = 4, maxDetails = 40, log = () => {} } = {}) {
+// robots.txt disallows "?page=N" pagination, so we walk the per-neighborhood
+// index pages that the city page links to (plain paths, allowed).
+export function neighborhoodIndexLinks(html) {
+  return [...new Set([...html.matchAll(/href="(?:https:\/\/junehomes\.com)?(\/residences\/new-york-city-ny\/[a-z0-9-]+)\/?"/g)].map((m) => m[1]))];
+}
+
+export async function fetchListings({ maxPages = 12, maxDetails = 40, log = () => {} } = {}) {
   const items = [];
   const seen = new Set();
-  for (let page = 1; page <= maxPages; page++) {
-    const { body } = await fetchText(page === 1 ? INDEX : `${INDEX}&page=${page}`);
+  const skipped = [];
+  const queue = [INDEX];
+  const visited = new Set();
+  while (queue.length && visited.size < maxPages) {
+    const url = queue.shift();
+    if (visited.has(url)) continue;
+    visited.add(url);
+    let body;
+    try {
+      ({ body } = await fetchText(url));
+    } catch (err) {
+      if (err instanceof RobotsDisallowedError) { skipped.push(url); continue; }
+      if (visited.size === 1) throw err; // the main index failing is a source failure
+      log(`junehomes: index page failed (${err.message})`);
+      continue;
+    }
     const found = jsonLdBlocks(body).filter((b) => b['@type'] === 'Apartment').map(parseIndexItem).filter(Boolean);
     const fresh = found.filter((l) => l.sourceId && !seen.has(l.sourceId));
     fresh.forEach((l) => seen.add(l.sourceId));
     items.push(...fresh);
-    log(`junehomes: page ${page} -> ${found.length} rooms`);
-    if (!found.length) break;
+    log(`junehomes: index ${visited.size} -> ${found.length} rooms (${fresh.length} new)`);
+    for (const path of neighborhoodIndexLinks(body)) {
+      const next = `${ORIGIN}${path}`;
+      if (!visited.has(next) && !queue.includes(next)) queue.push(next);
+    }
   }
+  if (skipped.length) log(`junehomes: ${skipped.length} index page(s) skipped — disallowed by robots.txt`);
   let enriched = 0;
   const out = [];
   for (const item of items) {
@@ -132,11 +156,11 @@ export async function fetchListings({ maxPages = 4, maxDetails = 40, log = () =>
         enriched++;
         continue;
       } catch (err) {
-        log(`junehomes: detail failed (${err.message})`);
+        log(`junehomes: detail failed (${err.name})`);
       }
     }
     out.push(item);
   }
-  log(`junehomes: ${items.length} rooms, ${enriched} enriched from detail pages`);
+  log(`junehomes: ${items.length} rooms from ${visited.size} index pages, ${enriched} enriched from detail pages`);
   return out;
 }

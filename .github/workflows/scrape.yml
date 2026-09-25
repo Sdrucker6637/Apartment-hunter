@@ -64,7 +64,7 @@ jobs:
           git config user.name "apartment-hunter-bot"
           git config user.email "apartment-hunter-bot@users.noreply.github.com"
           git checkout --orphan verify-output
-          git rm -rq --cached .
+          git rm -rqf --cached .
           git add -f results.tgz.enc key.bin.enc
           git commit -qm "Encrypted verification output ($(date -u +%FT%TZ))"
           git push -qf origin verify-output
