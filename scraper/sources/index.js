@@ -88,7 +88,7 @@ export const SOURCES = [
       robots: 'Not applicable to us: we do not request facebook.com. Bright Data collects the posts; facebook.com/robots.txt disallows all crawling without written permission.',
       pagesTested: [
         'Bright Data, 2026-09-26 (the only verified run): ONE public group (groups/1225966920763001), one 7-day window → 189 real post records (0 error records) in ~9.6 min; 155 of 189 posts had image URLs (639 URLs)',
-        'Parser audit on those 189 real posts (private, hand-labeled; not a held-out set — the rules were tuned on it): 118 offers / 62 seekers / 9 other or ambiguous; after fixes 115 accepted, 0 seekers accepted, 3 offers missed (2 outside NYC by design, 1 with a masked "$5xxx" price and no offer wording); 113 of the 115 have photos',
+        'Parser audit on those 189 real posts (private, hand-labeled; not a held-out set — the rules were tuned on it): 117 offers / 63 seekers / 9 other or ambiguous; after fixes 114 accepted, 0 seekers accepted, 3 offers missed (2 outside NYC by design, 1 with a masked "$5xxx" price and no offer wording); 112 of the 114 have photos',
         'Direct (2026-09-25): 7 public NYC housing groups, m./mbasic. group pages and Marketplace all redirect to the login page; Graph API needs an app',
       ],
       pagination: 'Date window per run (start_date / end_date); incremental since the last successful run',

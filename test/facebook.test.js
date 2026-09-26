@@ -334,3 +334,21 @@ test('audit: whole-apartment wording turns a lone "likely share" into the apartm
   assert.notEqual(room.listingType.value, 'ENTIRE_APARTMENT', 'taking over a room is not an entire apartment');
   assert.equal(room.price.share, 1575);
 });
+
+test('audit: a seeker with a budget asking "anyone … needs someone to sublet their room" is not an offer', () => {
+  const seeker = "Hey everyone! I'm still looking to fill a room in Williamsburg near Bedford Ave by October 1st. My budget is around $1700-$1800, okay with 1 or 2 roommates. If anyone has any leads or needs someone to long-term sublet their room, please reach out. Thanks!";
+  assert.equal(classifyHousing(seeker).housing, false);
+  assert.equal(classifyHousing('Room available in our Bushwick apartment, $1,450/month. Budget-friendly! My roommate is moving out and I need someone to take over their room Oct 1.').housing, true, 'an owner offering the roommate\'s room still counts');
+});
+
+test('incremental: a re-retrieved post replaces its carried-over copy; a now-rejected post is removed', async () => {
+  const mk = (id, extra = {}) => normalizeListing({ source: 'facebook', sourceId: id, sourceLabel: 'Facebook', originalUrl: `https://www.facebook.com/groups/1/posts/${id}/`, title: 'Room', postedAt: new Date().toISOString(), price: { monthly: 1000, type: 'room_share', basis: 'explicit' }, ...extra }, { scrapedAt: new Date().toISOString() });
+  const previousListings = [mk('keep'), mk('rejected-now'), mk('updated')];
+  const partials = Object.assign([{ source: 'facebook', sourceId: 'updated', sourceLabel: 'Facebook', originalUrl: 'https://www.facebook.com/groups/1/posts/updated/', title: 'Room, new parse', postedAt: new Date().toISOString(), price: { monthly: 1100, type: 'room_share', basis: 'explicit' } }],
+    { sourceStats: { provider: 'Bright Data', groups: ['g'], recordsRetrieved: 2, errorRecords: 0, housingListings: 1, rejected: { seeking: 1 }, recordsWithImages: 0 }, retrievedIds: ['facebook:rejected-now', 'facebook:updated'] });
+  const src = { id: 'facebook', name: 'Facebook', enabledByDefault: true, incremental: true, run: async () => partials };
+  const { listings } = await run({ sources: [src], dryRun: true, log: () => {}, previousListings });
+  assert.deepEqual(listings.map((l) => l.id).sort(), ['facebook:keep', 'facebook:updated'], 'not re-read → carried over; re-read and rejected → gone');
+  assert.equal(listings.find((l) => l.id === 'facebook:updated').price.share, 1100, 'the new parse wins');
+  assert.equal(listings.find((l) => l.id === 'facebook:keep').carriedOver, true);
+});

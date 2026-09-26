@@ -77,6 +77,7 @@ export async function run({ offline = false, dryRun = false, log = console.log, 
   const fresh = [];
   const liveSources = new Set();
   const auditPosts = [];
+  const reRetrieved = new Set(); // ids an incremental source re-read this run
 
   for (const src of sources) {
     const prev = prevStatus.sources?.find((s) => s.id === src.id);
@@ -119,6 +120,7 @@ export async function run({ offline = false, dryRun = false, log = console.log, 
       const partials = await src.run(config, (m) => { notes.push(m); log(m); }, { previous: prev || null, now });
       if (partials.sourceStats) st.sourceStats = partials.sourceStats;
       if (partials.auditPosts) auditPosts.push(...partials.auditPosts);
+      if (partials.retrievedIds) for (const id of partials.retrievedIds) reRetrieved.add(id);
       if (partials.skipped) {
         // The adapter chose not to collect this run (e.g. a cost guard); keep its previous state.
         Object.assign(st, { status: prev?.status ?? 'UNVERIFIED', reason: partials.skipped, sourceStats: prev?.sourceStats ?? null });
@@ -190,6 +192,7 @@ export async function run({ offline = false, dryRun = false, log = console.log, 
   for (const l of previous) {
     const src = l.source;
     if (liveSources.has(src) && !incrementalSources.has(src)) continue; // re-fetched this run
+    if (reRetrieved.has(l.id)) continue; // incremental: this run re-read the post; its new result (or rejection) wins
     // Signed photo links that have expired no longer load; drop them.
     const photos = (l.photos || []).filter((p) => !p.expiresAt || Date.parse(p.expiresAt) > now);
     byId.set(l.id, { ...l, photos, photoCount: photos.length, ...(photos.length ? {} : { photoStatus: l.originalUrl ? 'source_only' : 'none' }), carriedOver: true });

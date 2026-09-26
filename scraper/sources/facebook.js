@@ -301,8 +301,11 @@ const SEEKING = new RegExp([
 const SEEKER_CUE = /\b(?:my|our|max(?:imum)?)\s+budget\b|\bbudget\s*(?::|is|of)?\s*(?:~|up to|under|around|about|approx\.?|max(?:imum)?|below|less than)?\s*~?\s*\$?\s*\d|\bapartment[- ]hunt(?:ing)?\s+with\b|\bto team up\b|\bin any of these neighbou?rhoods\b/i;
 const OWN_PLACE = /\b(?:my|our|her|his|their)\s+(?:room|bedroom|apartment|apt|studio|place|lease|unit|flat)\b|\broom (?:is )?available\b|\bavailable (?:room|bedroom)\b|\bfor rent\b/gi;
 // "…if you have a room available" is addressed to the reader, not an offer.
+// So is "if anyone … needs someone to sublet their room" (their = the reader's).
 const ASKING_READER = /\byou\s+(?:have|know\s+of|got)\s+(?:a|an|any)?\s*$/i;
-const offersOwnPlace = (t) => [...t.matchAll(OWN_PLACE)].some((m) => !ASKING_READER.test(t.slice(Math.max(0, m.index - 25), m.index)));
+const ANYONE_THEIR = /\b(?:anyone|anybody)\b[^.!?\n]{0,70}$/i;
+const offersOwnPlace = (t) => [...t.matchAll(OWN_PLACE)].some((m) => !ASKING_READER.test(t.slice(Math.max(0, m.index - 25), m.index))
+  && !(/^their\b/i.test(m[0]) && ANYONE_THEIR.test(t.slice(Math.max(0, m.index - 90), m.index))));
 
 // Index of the first real seeking phrase, or -1. Ignored: rhetorical
 // questions ("Looking for a place to stay in Manhattan? This studio…") and
@@ -439,6 +442,7 @@ export async function fetchListings(cfg, log = () => {}, { previous = null, now 
   const keys = new Set();
   const out = [];
   const seen = new Set();
+  const retrieved = [];
   for (const rec of records) {
     if (rec && typeof rec === 'object') Object.keys(rec).forEach((k) => keys.add(k));
     const post = recordToPost(rec, { groupUrl: groups.length === 1 ? groups[0] : null });
@@ -447,6 +451,7 @@ export async function fetchListings(cfg, log = () => {}, { previous = null, now 
     if (post.photos.length) stats.recordsWithImages++;
     stats.photoUrls += post.photos.length;
     stats.expiredPhotoUrls += post.photos.filter((p) => p.expiresAt && Date.parse(p.expiresAt) <= now).length;
+    retrieved.push(`${meta.id}:${post.postId || post.url}`);
     const { listing, reason } = postToListing(post);
     if (fb.dumpRaw) audit.push({ postId: post.postId, url: post.url, postedAt: post.postedAt, group: post.groupName, photos: post.photos.length, reason, text: post.text });
     if (!listing) { stats.rejected[reason] = (stats.rejected[reason] || 0) + 1; continue; }
@@ -459,6 +464,9 @@ export async function fetchListings(cfg, log = () => {}, { previous = null, now 
   if (records.length > fb.maxRecordsWarn) log(`facebook: WARNING ${records.length} records in one run (above FACEBOOK_MAX_RECORDS_WARN=${fb.maxRecordsWarn})`);
   log(`facebook: ${records.length} records (${stats.errorRecords} error records), ${stats.posts} posts, ${out.length} housing listings, ${stats.recordsWithImages} posts with image URLs`);
   out.sourceStats = stats;
+  // Every post id seen this run, accepted or not: this run's result replaces
+  // any earlier copy (so a post the current parser rejects is not carried over).
+  out.retrievedIds = retrieved;
   // Verify runs only: every post's text + classification for the private
   // (encrypted) parser audit. Never written in publish runs.
   if (fb.dumpRaw) out.auditPosts = audit;
