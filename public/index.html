@@ -3,173 +3,286 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>Apartment Hunter — NYC roommate search</title>
-  <meta name="description" content="One search across NYC roommate and room-rental sites, with real listing photos.">
+  <title>Apartment Hunter — rooms &amp; apartments in NYC</title>
+  <meta name="description" content="Rooms, sublets and apartments across New York from Facebook housing groups and Roomster, with real photos and a link to every original post.">
   <meta name="referrer" content="no-referrer">
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='8' fill='%23121212'/><path d='M8 24V13l8-5 8 5v11h-5v-6h-6v6z' fill='%23FCCC0A'/></svg>">
+  <meta name="theme-color" content="#f3efe6">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><rect width='32' height='32' rx='6' fill='%23171410'/><path d='M9 23V12.5L16 8l7 4.5V23h-4.5v-5.5h-5V23z' fill='%23f3efe6'/><rect x='21' y='6' width='5' height='5' fill='%23d7391f'/></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500&family=Newsreader:ital,opsz,wght@0,6..72,400;0,6..72,500;0,6..72,600;1,6..72,400;1,6..72,500&display=swap">
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-  <div id="sample-banner" class="sample-banner" hidden>SAMPLE DATA — locally generated test listings, not real apartments.</div>
+  <a class="skip" href="#main">Skip to listings</a>
+  <div id="sample-banner" class="sample-banner" hidden>Sample data — locally generated test listings, not real apartments.</div>
 
-  <header class="masthead">
-    <div class="masthead-inner">
-      <a class="brand" href="./" aria-label="Apartment Hunter home">
-        <span class="brand-mark" aria-hidden="true"></span>
-        <span class="brand-text"><strong>Apartment Hunter</strong><span>One search across NYC roommate sites</span></span>
+  <header class="topbar">
+    <div class="topbar-inner">
+      <a class="wordmark" href="#/" aria-label="Apartment Hunter, browse listings">
+        <span class="wm-word">Apartment</span><span class="wm-italic">Hunter</span><span class="wm-city" aria-hidden="true">NYC</span>
       </a>
-      <button class="freshness" id="freshness" type="button" aria-haspopup="dialog">
-        <span class="dot" id="freshness-dot"></span>
-        <span id="freshness-text">Loading listings…</span>
-      </button>
+      <nav class="tabs" aria-label="Sections">
+        <a href="#/" data-view="browse">Browse</a>
+        <a href="#/saved" data-view="saved">Shortlist<span class="tab-n" data-count="saved"></span></a>
+        <a href="#/hidden" data-view="hidden">Hidden<span class="tab-n" data-count="hidden"></span></a>
+        <a href="#/about" data-view="about">About the listings</a>
+      </nav>
     </div>
   </header>
 
-  <section class="search" aria-label="What are you looking for?">
-    <div class="search-inner">
-      <div class="q-row q-type">
-        <span class="q-label">I'm looking for</span>
-        <div class="type-pills" id="types" role="group" aria-label="Listing type"></div>
+  <main id="main" tabindex="-1">
+    <!-- BROWSE -->
+    <section class="view" id="view-browse" data-view="browse" aria-labelledby="browse-title">
+      <div class="masthead wrap">
+        <p class="dateline" id="dateline"><span class="dl-date"></span><span class="dl-fresh"></span></p>
+        <h1 class="headline" id="browse-title"><span id="headline-count">Listings</span> <span class="headline-rest">across New York</span></h1>
+        <p class="dek" id="dek">Rooms, sublets and whole apartments from public Facebook housing groups and Roomster — every one linked back to its original post.</p>
+        <div class="boro-index" id="boro-index" role="group" aria-label="Filter by borough"></div>
       </div>
 
-      <div class="q-grid">
-        <label class="q-field q-price">
-          <span class="q-label">My max share</span>
-          <span class="q-value"><output id="max-price-out">$1,700</output><small>/mo</small></span>
-          <input type="range" id="max-price" min="500" max="1700" step="25" aria-label="Maximum monthly share">
-        </label>
-        <div class="q-field q-where">
-          <span class="q-label">Where</span>
-          <div class="chips" id="boros" role="group" aria-label="Borough"></div>
-          <button type="button" class="link" id="where-btn">Neighborhoods…</button>
-        </div>
-        <label class="q-field q-move">
-          <span class="q-label">Move in by</span>
-          <select id="move-by"></select>
-        </label>
-        <div class="q-field">
-          <span class="q-label">Existing roommates</span>
-          <div class="chips" id="roommates" role="group" aria-label="People already living there">
-            <button type="button" data-value="0">0</button><button type="button" data-value="1">1</button><button type="button" data-value="2">2</button><button type="button" data-value="3">3+</button>
-          </div>
-        </div>
-        <div class="q-field">
-          <span class="q-label">Bedrooms in apartment</span>
-          <div class="chips" id="bedrooms" role="group" aria-label="Bedrooms">
-            <button type="button" data-value="0">Studio</button><button type="button" data-value="1">1</button><button type="button" data-value="2">2</button><button type="button" data-value="3">3</button><button type="button" data-value="4">4+</button>
-          </div>
+      <div class="searchbar-wrap" id="searchbar-wrap">
+        <div class="searchbar wrap">
+          <label class="sb-search">
+            <svg class="i" aria-hidden="true"><use href="#i-search"/></svg>
+            <span class="visually-hidden">Search listings</span>
+            <input type="search" id="q" placeholder="Search a neighborhood, train, “W/D”…" autocomplete="off" enterkeyhint="search">
+          </label>
+          <button type="button" class="sb-field" id="where-btn" aria-haspopup="dialog">
+            <span class="sb-k">Where</span><span class="sb-v" id="where-v">Anywhere</span>
+          </button>
+          <button type="button" class="sb-field" id="price-btn" aria-haspopup="dialog">
+            <span class="sb-k">Your share</span><span class="sb-v" id="price-v">Any price</span>
+          </button>
+          <button type="button" class="sb-filters" id="filters-btn" aria-haspopup="dialog">
+            <svg class="i" aria-hidden="true"><use href="#i-sliders"/></svg><span>Filters</span><span class="sb-count" id="filters-count" hidden></span>
+          </button>
         </div>
       </div>
 
-      <div class="q-row q-toggles">
-        <div class="toggles" id="toggles" role="group" aria-label="Must have">
-          <button type="button" data-t="laundry:unit">🧺 W/D in unit</button>
-          <button type="button" data-t="laundry:building">🧺 Laundry in building</button>
-          <button type="button" data-t="furnished">🛋 Furnished</button>
-          <button type="button" data-t="room:private">🚪 Private room</button>
-          <button type="button" data-t="photos">📷 Has photos</button>
+      <div class="wrap">
+        <div class="typebar">
+          <div class="type-tabs" id="types" role="group" aria-label="Listing type"></div>
         </div>
-        <button type="button" class="more-btn" id="more-btn">More filters <span id="more-count" class="badge-count" hidden></span></button>
-      </div>
 
-      <div class="q-row q-sources">
-        <span class="q-label">Sources</span>
-        <div class="source-checks" id="sources" role="group" aria-label="Sources"></div>
-      </div>
-    </div>
-  </section>
-
-  <main class="results" id="results">
-    <div class="results-head">
-      <div class="results-summary">
-        <p class="summary" id="summary" aria-live="polite"></p>
+        <div class="resultbar">
+          <p class="result-count" id="summary" aria-live="polite"></p>
+          <div class="active-chips" id="active-filters"></div>
+            <label class="sort">
+            <span class="sort-k">Sort</span>
+            <select id="sort">
+              <option value="price-asc">Lowest price</option>
+              <option value="price-desc">Highest price</option>
+              <option value="newest">Newest posts</option>
+              <option value="movein">Soonest move-in</option>
+              <option value="roommates-asc">Fewest roommates</option>
+              <option value="roommates-desc">Most roommates</option>
+            </select>
+          </label>
+        </div>
         <p class="unknown-note" id="unknown-note" hidden></p>
+        <p class="source-notice" id="source-notice" hidden></p>
+
+        <div class="grid" id="grid" aria-busy="true"></div>
+        <div class="state" id="empty" hidden></div>
       </div>
-      <div class="results-tools">
-        <button type="button" class="pill-toggle" id="saved-toggle" aria-pressed="false">♡ Saved <span id="saved-count"></span></button>
-        <label class="sort">
-          <span class="visually-hidden">Sort</span>
-          <select id="sort">
-            <option value="price-asc">Price: low to high</option>
-            <option value="price-desc">Price: high to low</option>
-            <option value="newest">Newest</option>
-            <option value="movein">Soonest move-in</option>
-            <option value="roommates-asc">Fewest roommates</option>
-            <option value="roommates-desc">Most roommates</option>
-          </select>
-        </label>
+    </section>
+
+    <!-- SHORTLIST -->
+    <section class="view" id="view-saved" data-view="saved" aria-labelledby="saved-title" hidden>
+      <div class="page-head wrap">
+        <p class="dateline">Your shortlist · saved in this browser</p>
+        <h1 class="headline" id="saved-title">Places you're <em>considering</em></h1>
+        <p class="dek" id="saved-dek"></p>
       </div>
-    </div>
-    <div class="active-filters" id="active-filters"></div>
-    <div class="grid" id="grid"></div>
-    <div class="empty" id="empty" hidden></div>
+      <div class="wrap">
+        <p class="source-notice" id="saved-missing" hidden></p>
+        <div class="grid" id="saved-grid"></div>
+        <div class="state" id="saved-empty" hidden></div>
+      </div>
+    </section>
+
+    <!-- HIDDEN -->
+    <section class="view" id="view-hidden" data-view="hidden" aria-labelledby="hidden-title" hidden>
+      <div class="page-head wrap">
+        <p class="dateline">Hidden · kept out of Browse</p>
+        <h1 class="headline" id="hidden-title">Not for <em>you</em></h1>
+        <p class="dek" id="hidden-dek"></p>
+      </div>
+      <div class="wrap">
+        <ul class="hidden-list" id="hidden-list"></ul>
+        <div class="state" id="hidden-empty" hidden></div>
+      </div>
+    </section>
+
+    <!-- ABOUT -->
+    <section class="view" id="view-about" data-view="about" aria-labelledby="about-title" hidden>
+      <div class="page-head wrap">
+        <p class="dateline" id="about-dateline">About the listings</p>
+        <h1 class="headline" id="about-title">Where these <em>listings</em> come from</h1>
+        <p class="dek">Apartment Hunter doesn't own or rent anything. It gathers public posts, reads them carefully, and sends you to the original to get in touch.</p>
+      </div>
+      <div class="wrap about" id="about-body"></div>
+    </section>
   </main>
 
   <footer class="site-foot">
-    <p>Apartment Hunter doesn't own any listing: every card links to the original post on its source site, and photos load from that site. Labels show where each fact comes from — <em>Stated</em> means the listing says it; nothing is shown as a fact unless the listing states it.</p>
-    <button type="button" class="link" id="foot-status">Sources, coverage &amp; data quality</button>
+    <div class="wrap foot-inner">
+      <p class="foot-mark"><span class="wm-word">Apartment</span><span class="wm-italic">Hunter</span></p>
+      <p>Every listing links to its original post; photos load from the source. Nothing is shown as a fact unless the listing states it. <a href="#/about">How the listings are read</a></p>
+    </div>
   </footer>
 
-  <dialog class="sheet" id="where-dialog" aria-labelledby="where-title">
-    <div class="sheet-head">
+  <nav class="tabbar" aria-label="Sections">
+    <a href="#/" data-view="browse"><svg class="i" aria-hidden="true"><use href="#i-grid"/></svg><span>Browse</span></a>
+    <a href="#/saved" data-view="saved"><svg class="i" aria-hidden="true"><use href="#i-heart"/></svg><span>Shortlist</span><span class="tab-n" data-count="saved"></span></a>
+    <a href="#/hidden" data-view="hidden"><svg class="i" aria-hidden="true"><use href="#i-eye-off"/></svg><span>Hidden</span></a>
+    <a href="#/about" data-view="about"><svg class="i" aria-hidden="true"><use href="#i-info"/></svg><span>About</span></a>
+  </nav>
+
+  <!-- FILTER DRAWER (bottom sheet on phones) -->
+  <dialog class="drawer" id="filters-dialog" aria-labelledby="filters-title">
+    <div class="drawer-head">
+      <h2 id="filters-title">Filters</h2>
+      <button type="button" class="icon-btn" data-close aria-label="Close filters"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="drawer-body">
+      <section class="fsec" id="fsec-price">
+        <h3>What you'd pay</h3>
+        <div class="price-ctl">
+          <div class="price-read"><output id="max-price-out">Any price</output><span class="muted">per month, your share</span></div>
+          <input type="range" id="max-price" min="500" max="1700" step="25" aria-label="Maximum monthly share">
+          <div class="range-ends"><span>$500</span><span id="range-max">$1,700+</span></div>
+        </div>
+        <p class="fnote">Listings are capped at the site's budget. A listing that only gives total rent has no stated share, so it only appears under a max share if you include listings that don't say.</p>
+      </section>
+
+      <section class="fsec">
+        <h3>Kind of place</h3>
+        <div class="checks" id="f-types"></div>
+      </section>
+
+      <section class="fsec">
+        <h3>Where</h3>
+        <div class="toggle-grid" id="f-boros" role="group" aria-label="Borough"></div>
+        <button type="button" class="text-btn" id="f-hoods-btn">Choose neighborhoods</button>
+        <div class="picked" id="f-hoods"></div>
+      </section>
+
+      <section class="fsec">
+        <h3>Move-in</h3>
+        <label class="select-field"><span class="visually-hidden">Move in by</span><select id="move-by"></select></label>
+      </section>
+
+      <section class="fsec">
+        <h3>The apartment</h3>
+        <div class="fgroup"><p class="flabel" id="lbl-beds">Bedrooms in the apartment</p>
+          <div class="seg" id="bedrooms" role="group" aria-labelledby="lbl-beds">
+            <button type="button" data-value="0">Studio</button><button type="button" data-value="1">1</button><button type="button" data-value="2">2</button><button type="button" data-value="3">3</button><button type="button" data-value="4">4+</button>
+          </div></div>
+        <div class="fgroup"><p class="flabel" id="lbl-rm">People already living there</p>
+          <div class="seg" id="roommates" role="group" aria-labelledby="lbl-rm">
+            <button type="button" data-value="0">None</button><button type="button" data-value="1">1</button><button type="button" data-value="2">2</button><button type="button" data-value="3">3+</button>
+          </div>
+          <p class="fnote">Only listings that state it — roommates are never guessed from the number of bedrooms.</p></div>
+        <div class="fgroup"><p class="flabel" id="lbl-room">Your room</p>
+          <div class="seg" id="roomtype" role="radiogroup" aria-labelledby="lbl-room">
+            <button type="button" data-value="any" role="radio">Either</button><button type="button" data-value="private" role="radio">Private</button><button type="button" data-value="shared" role="radio">Shared</button>
+          </div></div>
+      </section>
+
+      <section class="fsec">
+        <h3>Must-haves</h3>
+        <div class="toggle-grid" id="toggles" role="group" aria-label="Must-haves">
+          <button type="button" data-t="laundry:unit"><svg class="i" aria-hidden="true"><use href="#i-wash"/></svg>Washer/dryer in unit</button>
+          <button type="button" data-t="laundry:building"><svg class="i" aria-hidden="true"><use href="#i-wash"/></svg>Laundry in building</button>
+          <button type="button" data-t="furnished"><svg class="i" aria-hidden="true"><use href="#i-sofa"/></svg>Furnished</button>
+          <button type="button" data-t="room:private"><svg class="i" aria-hidden="true"><use href="#i-door"/></svg>Private room</button>
+          <button type="button" data-t="photos"><svg class="i" aria-hidden="true"><use href="#i-camera"/></svg>Has photos</button>
+        </div>
+      </section>
+
+      <section class="fsec">
+        <h3>Source</h3>
+        <div class="checks" id="sources"></div>
+        <div class="fgroup"><p class="flabel" id="lbl-by">Posted by</p>
+          <div class="seg" id="postedby" role="radiogroup" aria-labelledby="lbl-by">
+            <button type="button" data-value="any" role="radio">Anyone</button><button type="button" data-value="people" role="radio">People, not brokers</button>
+          </div></div>
+      </section>
+
+      <section class="fsec">
+        <h3>Listings that don't say</h3>
+        <label class="check-row"><input type="checkbox" id="include-unknown"><span>When a filter is set, also show listings that <strong>don't mention</strong> it (for example, move-in not specified)</span></label>
+      </section>
+    </div>
+    <div class="drawer-foot">
+      <button type="button" class="btn ghost" id="reset-btn">Clear all</button>
+      <button type="button" class="btn primary" data-close id="filters-apply">Show listings</button>
+    </div>
+  </dialog>
+
+  <!-- NEIGHBORHOODS -->
+  <dialog class="drawer narrow" id="where-dialog" aria-labelledby="where-title">
+    <div class="drawer-head">
       <h2 id="where-title">Neighborhoods</h2>
-      <button type="button" class="icon-close" data-close aria-label="Close">×</button>
+      <button type="button" class="icon-btn" data-close aria-label="Close neighborhoods"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg></button>
     </div>
-    <input type="search" id="hood-q" class="sheet-search" placeholder="Search neighborhoods">
-    <div class="where-list" id="where-list"></div>
-    <div class="sheet-foot">
+    <div class="drawer-search"><svg class="i" aria-hidden="true"><use href="#i-search"/></svg><input type="search" id="hood-q" placeholder="Find a neighborhood" aria-label="Find a neighborhood"></div>
+    <div class="drawer-body" id="where-list"></div>
+    <div class="drawer-foot">
       <button type="button" class="btn ghost" id="where-clear">Clear</button>
-      <button type="button" class="btn primary" data-close>Show results</button>
+      <button type="button" class="btn primary" data-close id="where-apply">Show listings</button>
     </div>
   </dialog>
 
-  <dialog class="sheet" id="more-dialog" aria-labelledby="more-title">
-    <div class="sheet-head">
-      <h2 id="more-title">More filters</h2>
-      <button type="button" class="icon-close" data-close aria-label="Close">×</button>
-    </div>
-    <div class="sheet-body">
-      <label class="field"><span class="field-label">Keyword</span><input type="search" id="q" placeholder="e.g. near L train, sunny, dishwasher"></label>
-      <div class="field"><span class="field-label">Room</span>
-        <div class="segmented" id="roomtype" role="radiogroup">
-          <button type="button" data-value="any" role="radio">Any</button>
-          <button type="button" data-value="private" role="radio">Private room</button>
-          <button type="button" data-value="shared" role="radio">Shared room</button>
-        </div>
-      </div>
-      <div class="field"><span class="field-label">Posted by</span>
-        <div class="segmented" id="postedby" role="radiogroup">
-          <button type="button" data-value="any" role="radio">Anyone</button>
-          <button type="button" data-value="people" role="radio">Not a company/broker</button>
-        </div>
-      </div>
-      <label class="check"><input type="checkbox" id="include-unknown"><span>When a filter is set, also include listings that <strong>don't say</strong> (e.g. roommates not stated)</span></label>
-      <label class="check"><input type="checkbox" id="show-hidden"><span>Show listings I've hidden</span></label>
-    </div>
-    <div class="sheet-foot">
-      <button type="button" class="btn ghost" id="reset-btn">Reset everything</button>
-      <button type="button" class="btn primary" data-close>Show results</button>
-    </div>
-  </dialog>
-
+  <!-- LISTING DETAIL -->
   <dialog class="detail" id="detail-dialog" aria-labelledby="detail-title">
-    <div id="detail-content"></div>
+    <div class="detail-scroll" id="detail-content" tabindex="-1"></div>
   </dialog>
 
+  <!-- PHOTO VIEWER -->
   <dialog class="lightbox" id="lightbox" aria-label="Photo viewer">
-    <button type="button" class="lb-close" data-close aria-label="Close">×</button>
-    <button type="button" class="lb-nav prev" data-lb="-1" aria-label="Previous photo">‹</button>
-    <figure class="lb-figure"><img id="lb-img" alt=""><figcaption id="lb-cap"></figcaption></figure>
-    <button type="button" class="lb-nav next" data-lb="1" aria-label="Next photo">›</button>
+    <div class="lb-top">
+      <span class="lb-count" id="lb-count"></span>
+      <button type="button" class="icon-btn on-dark" data-close aria-label="Close photos"><svg class="i" aria-hidden="true"><use href="#i-x"/></svg></button>
+    </div>
+    <div class="lb-track" id="lb-track"></div>
+    <button type="button" class="lb-nav prev" data-lb="-1" aria-label="Previous photo"><svg class="i" aria-hidden="true"><use href="#i-left"/></svg></button>
+    <button type="button" class="lb-nav next" data-lb="1" aria-label="Next photo"><svg class="i" aria-hidden="true"><use href="#i-right"/></svg></button>
+    <p class="lb-cap" id="lb-cap"></p>
   </dialog>
 
-  <dialog class="sheet wide" id="status-dialog" aria-labelledby="status-title">
-    <div class="sheet-head">
-      <h2 id="status-title">Sources, coverage &amp; data quality</h2>
-      <button type="button" class="icon-close" data-close aria-label="Close">×</button>
-    </div>
-    <div class="sheet-body" id="status-body"></div>
-  </dialog>
+  <div class="toast" id="toast" role="status" aria-live="polite"></div>
+
+  <svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="m16 16 4.5 4.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-sliders" viewBox="0 0 24 24"><path d="M4 7h9M17 7h3M4 17h3M11 17h9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><circle cx="15" cy="7" r="2" fill="none" stroke="currentColor" stroke-width="1.8"/><circle cx="9" cy="17" r="2" fill="none" stroke="currentColor" stroke-width="1.8"/></symbol>
+    <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 20s-7.2-4.4-8.9-8.8C1.9 8 4 4.8 7.2 4.8c1.9 0 3.4 1 4.8 2.8 1.4-1.8 2.9-2.8 4.8-2.8 3.2 0 5.3 3.2 4.1 6.4C19.2 15.6 12 20 12 20z" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+    <symbol id="i-heart-fill" viewBox="0 0 24 24"><path d="M12 20s-7.2-4.4-8.9-8.8C1.9 8 4 4.8 7.2 4.8c1.9 0 3.4 1 4.8 2.8 1.4-1.8 2.9-2.8 4.8-2.8 3.2 0 5.3 3.2 4.1 6.4C19.2 15.6 12 20 12 20z" fill="currentColor" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round"/></symbol>
+    <symbol id="i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1.7"/><rect x="13" y="4" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1.7"/><rect x="4" y="13" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1.7"/><rect x="13" y="13" width="7" height="7" fill="none" stroke="currentColor" stroke-width="1.7"/></symbol>
+    <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M3 12s3.3-6 9-6 9 6 9 6-3.3 6-9 6-9-6-9-6z" fill="none" stroke="currentColor" stroke-width="1.7"/><circle cx="12" cy="12" r="2.6" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M4 20 20 4" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/></symbol>
+    <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" fill="none" stroke="currentColor" stroke-width="1.7"/><path d="M12 11v5.5M12 7.6v.1" stroke="currentColor" stroke-width="1.9" stroke-linecap="round"/></symbol>
+    <symbol id="i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6 6 18" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></symbol>
+    <symbol id="i-left" viewBox="0 0 24 24"><path d="M14.5 5.5 8 12l6.5 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-right" viewBox="0 0 24 24"><path d="M9.5 5.5 16 12l-6.5 6.5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-out" viewBox="0 0 24 24"><path d="M9 5H5v14h14v-4M13 5h6v6M19 5l-8 8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-wash" viewBox="0 0 24 24"><rect x="5" y="3.5" width="14" height="17" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="13" r="4" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M8 6.5h2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+    <symbol id="i-sofa" viewBox="0 0 24 24"><path d="M5 11V8a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v3M3.5 11.5a1.5 1.5 0 0 1 3 0V14h11v-2.5a1.5 1.5 0 0 1 3 0V17h-17zM6 17v2M18 17v2" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+    <symbol id="i-door" viewBox="0 0 24 24"><path d="M6 20V4h12v16M3.5 20h17" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="14.5" cy="12.5" r="1" fill="currentColor"/></symbol>
+    <symbol id="i-camera" viewBox="0 0 24 24"><path d="M4 8h3.5L9 5.5h6L16.5 8H20v11H4z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><circle cx="12" cy="13" r="3.3" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+    <symbol id="i-bed" viewBox="0 0 24 24"><path d="M3.5 18.5V6M3.5 14h17v4.5M20.5 14v-2.5a3 3 0 0 0-3-3H11V14M7.5 11.3a1.8 1.8 0 1 0 0-.01" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="8.5" r="3" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M3.5 19c.6-3.2 2.7-5 5.5-5s4.9 1.8 5.5 5M15.5 5.8a3 3 0 0 1 0 5.4M17 14.3c1.9.6 3.1 2.2 3.5 4.7" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+    <symbol id="i-cal" viewBox="0 0 24 24"><rect x="4" y="5.5" width="16" height="14.5" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M4 10h16M8.5 3.5v4M15.5 3.5v4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+    <symbol id="i-bath" viewBox="0 0 24 24"><path d="M3.5 12h17v2.5a4.5 4.5 0 0 1-4.5 4.5H8a4.5 4.5 0 0 1-4.5-4.5zM6 12V6a2 2 0 0 1 3.7-1M7 19l-1 1.5M17 19l1 1.5" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-pin" viewBox="0 0 24 24"><path d="M12 21s-6.5-6-6.5-11a6.5 6.5 0 0 1 13 0c0 5-6.5 11-6.5 11z" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="10" r="2.3" fill="none" stroke="currentColor" stroke-width="1.6"/></symbol>
+    <symbol id="i-bolt" viewBox="0 0 24 24"><path d="M13 3 5.5 13.5H11L10 21l7.5-10.5H12z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/></symbol>
+    <symbol id="i-paw" viewBox="0 0 24 24"><circle cx="7" cy="10" r="1.8" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="17" cy="10" r="1.8" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="10" cy="6" r="1.8" fill="none" stroke="currentColor" stroke-width="1.5"/><circle cx="14" cy="6" r="1.8" fill="none" stroke="currentColor" stroke-width="1.5"/><path d="M12 12.5c-2.8 0-4.5 3-4.5 4.8 0 1.6 1.4 2.2 2.6 1.8 1.2-.4 2.6-.4 3.8 0 1.2.4 2.6-.2 2.6-1.8 0-1.8-1.7-4.8-4.5-4.8z" fill="none" stroke="currentColor" stroke-width="1.5"/></symbol>
+    <symbol id="i-lease" viewBox="0 0 24 24"><path d="M6 3.5h8.5L18 7v13.5H6z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/><path d="M9 11h6M9 14.5h6M9 18h3.5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+    <symbol id="i-user" viewBox="0 0 24 24"><circle cx="12" cy="8.5" r="3.5" fill="none" stroke="currentColor" stroke-width="1.6"/><path d="M5 20c.8-3.8 3.4-6 7-6s6.2 2.2 7 6" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></symbol>
+    <symbol id="i-expand" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+    <symbol id="i-undo" viewBox="0 0 24 24"><path d="M9 7 4.5 11.5 9 16M5 11.5h9a5 5 0 0 1 0 10h-2" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  </svg>
 
   <script type="module" src="app.js"></script>
 </body>
