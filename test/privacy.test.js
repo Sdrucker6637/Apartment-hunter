@@ -62,3 +62,14 @@ test('names: third parties introduced in a post, and repeats of a cued name', ()
   assert.equal(redactNames('Join us in Bushwick! Meet the roommates: two nurses. About the apartment: 3BR'), 'Join us in Bushwick! Meet the roommates: two nurses. About the apartment: 3BR');
   assert.equal(redactNames('I’m from Jamaica, moving to Harlem'), 'I’m from Jamaica, moving to Harlem', 'places after "from" are not names');
 });
+
+test('names: redaction is stable — sanitizing twice changes nothing (the audit re-checks it)', () => {
+  for (const s of [
+    'For more information, contact Mr. Robert Pape:\nEmail: someone@example.com',
+    'Hi, my name is Jane Doe. DM Sarah or ask for Dr. Kim. Best,\nMarco',
+    'posting for my friend Amy. Amy has a cat. Meet Amy: 29, nurse',
+  ]) {
+    const once = redact(s);
+    assert.equal(redactNames(once), once, s);
+  }
+});
