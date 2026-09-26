@@ -76,6 +76,7 @@ export async function run({ offline = false, dryRun = false, log = console.log, 
   const statuses = [];
   const fresh = [];
   const liveSources = new Set();
+  const auditPosts = [];
 
   for (const src of sources) {
     const prev = prevStatus.sources?.find((s) => s.id === src.id);
@@ -117,6 +118,7 @@ export async function run({ offline = false, dryRun = false, log = console.log, 
     try {
       const partials = await src.run(config, (m) => { notes.push(m); log(m); }, { previous: prev || null, now });
       if (partials.sourceStats) st.sourceStats = partials.sourceStats;
+      if (partials.auditPosts) auditPosts.push(...partials.auditPosts);
       if (partials.skipped) {
         // The adapter chose not to collect this run (e.g. a cost guard); keep its previous state.
         Object.assign(st, { status: prev?.status ?? 'UNVERIFIED', reason: partials.skipped, sourceStats: prev?.sourceStats ?? null });
@@ -132,7 +134,7 @@ export async function run({ offline = false, dryRun = false, log = console.log, 
       if (listings.length || (src.incremental && partials.sourceStats?.recordsRetrieved > 0)) {
         // Incremental sources succeed when records came back, even if none were new listings.
         liveSources.add(src.id);
-        st.lastSuccessAt = scrapedAt;
+        st.lastSuccessAt = partials.sourceStats?.collectedAt || scrapedAt;
         if (!listings.length) st.reason = 'Records retrieved, but none were new housing listings in this window';
       } else {
         st.reason = 'Pages fetched but no listings parsed';
@@ -162,6 +164,12 @@ export async function run({ offline = false, dryRun = false, log = console.log, 
       log(`${src.id}: ${st.status} (run failed: ${String(err.message).replace(/[A-Za-z0-9_-]{32,}/g, '[redacted]').slice(0, 240)})`);
     }
     st.durationMs = Date.now() - started;
+  }
+
+  // Verify runs only (encrypted output): Facebook posts with their
+  // classification, including rejected ones, for the private parser audit.
+  if (process.env.FACEBOOK_DUMP_RAW && !dryRun && auditPosts.length) {
+    await writeFile(process.env.FACEBOOK_DUMP_RAW, JSON.stringify({ scrapedAt, posts: auditPosts }) + '\n');
   }
 
   // Verify runs only (encrypted output): everything retrieved, before any

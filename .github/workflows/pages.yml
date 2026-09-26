@@ -15,6 +15,11 @@ name: Publish site (GitHub Pages)
 # One-time setup: Settings → Pages → Build and deployment → Source: "GitHub Actions".
 on:
   workflow_dispatch:
+    inputs:
+      facebook_snapshot:
+        description: 'Facebook: reuse an existing Bright Data snapshot ("latest" or an id) instead of collecting; blank = normal'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -58,6 +63,7 @@ jobs:
           # the scraper logs counts only.
           BRIGHTDATA_API_KEY: ${{ secrets.BRIGHTDATA_API_KEY }}
           FACEBOOK_GROUPS: ${{ vars.FACEBOOK_GROUPS }}
+          FACEBOOK_REUSE_SNAPSHOT: ${{ inputs.facebook_snapshot }}
           ENABLE_SOURCES: ${{ vars.ENABLE_SOURCES }}
           MAX_SHARE: ${{ vars.MAX_SHARE }}
 

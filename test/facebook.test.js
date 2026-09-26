@@ -257,3 +257,24 @@ function fakeBrightData(records, { runningPolls = 0, building = 0 } = {}) {
   };
   return { fn, calls };
 }
+
+test('snapshot reuse: downloads an existing ready snapshot and never starts a collection', async () => {
+  const calls = [];
+  const res = (status, body) => ({ status, ok: status < 300, json: async () => body, text: async () => '' });
+  const fetchImpl = async (url) => {
+    calls.push(url);
+    if (url.includes('/snapshots?')) return res(200, [{ id: 's_old', created: '2026-09-20T00:00:00Z', status: 'ready', dataset_size: 10 }, { id: 's_new', created: '2026-09-26T18:28:00Z', status: 'ready', dataset_size: 189 }]);
+    if (url.includes('/snapshot/s_new')) return res(200, [rec()]);
+    return res(404, {});
+  };
+  const cfg = { facebook: { ...config.facebook, apiKey: 'k', groups: ['https://www.facebook.com/groups/111222333/'], reuseSnapshot: 'latest', dumpRaw: true } };
+  const out = await fetchListings(cfg, () => {}, { previous: { lastSuccessAt: new Date().toISOString() }, fetchImpl, wait: async () => {} });
+  assert.equal(calls.some((u) => u.includes('/trigger')), false, 'no new collection');
+  assert.equal(out.length, 1);
+  assert.equal(out.sourceStats.snapshotReused, true);
+  assert.equal(out.sourceStats.collectedAt, '2026-09-26T18:28:00.000Z');
+  assert.equal(out.auditPosts.length, 1);
+  assert.equal(JSON.stringify(out.auditPosts).includes('jane.fixture'), false, 'audit dump has no poster profile');
+  const none = async (url) => (url.includes('/snapshots?') ? res(200, []) : res(404, {}));
+  await assert.rejects(fetchListings(cfg, () => {}, { fetchImpl: none }), /no collection was started/);
+});

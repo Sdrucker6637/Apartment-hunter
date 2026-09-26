@@ -34,6 +34,11 @@ export const config = {
     maxWaitSeconds: num(process.env.FACEBOOK_MAX_WAIT_SECONDS, 1200), // a 7-day window took ~9.6 min on 2026-09-26
     pollSeconds: num(process.env.FACEBOOK_POLL_SECONDS, 15),
     maxRecordsWarn: num(process.env.FACEBOOK_MAX_RECORDS_WARN, 300),
+    // "latest" or a snapshot id: re-download an existing Bright Data snapshot
+    // instead of collecting (no new records). Manual runs only.
+    reuseSnapshot: (process.env.FACEBOOK_REUSE_SNAPSHOT || '').trim(),
+    // Verify runs only: write every post + classification for the encrypted parser audit.
+    dumpRaw: !!process.env.FACEBOOK_DUMP_RAW,
   },
   reddit: {
     subreddits: list(process.env.SUBREDDITS, ['RoommatesNYC', 'NYCapartments']),

@@ -30,6 +30,10 @@ on:
         description: 'verify mode: render the site and screenshot it (true/false)'
         required: false
         default: 'false'
+      facebook_snapshot:
+        description: 'Facebook: reuse an existing Bright Data snapshot ("latest" or an id) instead of collecting; blank = normal'
+        required: false
+        default: ''
 
 permissions:
   contents: write
@@ -83,7 +87,7 @@ jobs:
       - name: Scrape live sources
         if: steps.guard.outputs.skip != 'true'
         run: |
-          if [ "$MODE" = "verify" ]; then export DUMP_RETRIEVED="$RUNNER_TEMP/retrieved.json"; fi
+          if [ "$MODE" = "verify" ]; then export DUMP_RETRIEVED="$RUNNER_TEMP/retrieved.json" FACEBOOK_DUMP_RAW="$RUNNER_TEMP/facebook-audit.json"; fi
           node scraper/index.js
         env:
           REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
@@ -92,6 +96,7 @@ jobs:
           # the scraper logs counts only.
           BRIGHTDATA_API_KEY: ${{ secrets.BRIGHTDATA_API_KEY }}
           FACEBOOK_GROUPS: ${{ vars.FACEBOOK_GROUPS }}
+          FACEBOOK_REUSE_SNAPSHOT: ${{ inputs.facebook_snapshot }}
           ENABLE_SOURCES: ${{ vars.ENABLE_SOURCES }}
           MAX_SHARE: ${{ vars.MAX_SHARE }}
 
@@ -125,6 +130,7 @@ jobs:
           mkdir -p out
           cp public/data/listings.json public/data/status.json out/
           [ -f "$RUNNER_TEMP/retrieved.json" ] && cp "$RUNNER_TEMP/retrieved.json" out/ || true
+          [ -f "$RUNNER_TEMP/facebook-audit.json" ] && cp "$RUNNER_TEMP/facebook-audit.json" out/ || true
           node scripts/sanitize.js public/data out/sanitized
           [ -d shots ] && cp -r shots out/ || true
           tar czf results.tgz -C out .

@@ -68,4 +68,10 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   await writeFile(join(outDir, 'listings.json'), JSON.stringify(clean) + '\n');
   await writeFile(join(outDir, 'status.json'), JSON.stringify(statusDoc, null, 1) + '\n');
   console.log('privacy audit passed');
+  // Counts only: what was published, per source, and its data kind.
+  const bySource = {};
+  for (const l of clean.listings) for (const src of new Set((l.sources || []).map((x) => x.source).concat(l.source))) bySource[src] = (bySource[src] || 0) + 1;
+  const withPhotos = {};
+  for (const l of clean.listings) if (l.photos?.length) withPhotos[l.source] = (withPhotos[l.source] || 0) + 1;
+  console.log(`published: dataKind=${clean.dataKind} listings=${clean.listings.length} · by source ${JSON.stringify(bySource)} · with photos ${JSON.stringify(withPhotos)} · all REAL=${clean.listings.every((l) => l.dataKind === 'REAL')}`);
 }

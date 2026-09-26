@@ -134,6 +134,11 @@ export async function collect({ apiKey, groups, start, end, maxWaitSeconds = 600
     }
     await wait(pollSeconds * 1000);
   }
+  const records = await downloadSnapshot({ apiKey, snapshotId, deadline, pollSeconds, fetchImpl, wait });
+  return { snapshotId, records };
+}
+
+async function downloadSnapshot({ apiKey, snapshotId, deadline, pollSeconds, fetchImpl, wait }) {
   for (;;) {
     const res = await bdFetch(fetchImpl, `${API}/snapshot/${encodeURIComponent(snapshotId)}?format=json`, apiKey);
     if (res.status === 202) {
@@ -143,8 +148,31 @@ export async function collect({ apiKey, groups, start, end, maxWaitSeconds = 600
     }
     if (!res.ok) throw new Error(`Bright Data snapshot download failed (HTTP ${res.status}) ${await errorText(res)}`);
     const data = await res.json();
-    return { snapshotId, records: Array.isArray(data) ? data : [] };
+    return Array.isArray(data) ? data : [];
   }
+}
+
+// Re-download a snapshot Bright Data already collected (kept 16 days)
+// instead of starting a new collection — no new records are collected.
+// `which` is a snapshot id or "latest" (newest ready snapshot of this dataset).
+export async function reuseSnapshot({ apiKey, which, maxWaitSeconds = 600, pollSeconds = 15, fetchImpl = fetch, wait = sleep, log = () => {} }) {
+  let snapshotId = which;
+  let created = null;
+  const res = await bdFetch(fetchImpl, `${API}/snapshots?dataset_id=${DATASET_ID}&status=ready`, apiKey);
+  if (!res.ok) throw new Error(`Bright Data snapshot list failed (HTTP ${res.status}) ${await errorText(res)}`);
+  const body = await res.json();
+  const list = (Array.isArray(body) ? body : body.snapshots || body.data || [])
+    .map((x) => ({ id: x.id || x.snapshot_id, created: x.created || x.created_at || null, size: x.dataset_size ?? null, status: x.status }))
+    .filter((x) => x.id && (!x.status || x.status === 'ready'));
+  const chosen = which === 'latest'
+    ? list.filter((x) => x.size !== 0).sort((a, b) => Date.parse(b.created || 0) - Date.parse(a.created || 0))[0]
+    : list.find((x) => x.id === which);
+  if (!chosen) throw new Error(`No reusable ready Bright Data snapshot (${which === 'latest' ? 'none listed' : 'id not found'}); no collection was started`);
+  snapshotId = chosen.id;
+  created = chosen.created;
+  log(`facebook: reusing an existing Bright Data snapshot (created ${created || 'unknown'}); no new collection`);
+  const records = await downloadSnapshot({ apiKey, snapshotId, deadline: Date.now() + maxWaitSeconds * 1000, pollSeconds, fetchImpl, wait });
+  return { snapshotId, created, records };
 }
 
 // ---------- records → posts ----------
@@ -303,7 +331,7 @@ export async function fetchListings(cfg, log = () => {}, { previous = null, now 
   if (!groups.length) throw new Error('FACEBOOK_GROUPS is not configured');
 
   // Cost guard: don't collect again within minHoursBetweenRuns of the last success.
-  if (previous?.lastSuccessAt && now - Date.parse(previous.lastSuccessAt) < fb.minHoursBetweenRuns * 3600000) {
+  if (!fb.reuseSnapshot && previous?.lastSuccessAt && now - Date.parse(previous.lastSuccessAt) < fb.minHoursBetweenRuns * 3600000) {
     const out = [];
     out.skipped = `Skipped: last successful collection was under ${fb.minHoursBetweenRuns}h ago (cost guard); earlier posts are kept.`;
     return out;
@@ -317,7 +345,16 @@ export async function fetchListings(cfg, log = () => {}, { previous = null, now 
     rejected: { seeking: 0, 'not-housing': 0, 'no-text': 0 },
     recordsWithImages: 0, photoUrls: 0, expiredPhotoUrls: 0, fieldsSeen: [],
   };
-  const { records } = await collect({ apiKey: fb.apiKey, groups, start, end, maxWaitSeconds: fb.maxWaitSeconds, pollSeconds: fb.pollSeconds, fetchImpl, wait, log });
+  let records;
+  if (fb.reuseSnapshot) {
+    const r = await reuseSnapshot({ apiKey: fb.apiKey, which: fb.reuseSnapshot, maxWaitSeconds: fb.maxWaitSeconds, pollSeconds: fb.pollSeconds, fetchImpl, wait, log });
+    records = r.records;
+    // The data is as of the snapshot, so the next collection starts from there.
+    Object.assign(stats, { snapshotReused: true, collectedAt: r.created && Number.isFinite(Date.parse(r.created)) ? new Date(r.created).toISOString() : null, window: null });
+  } else {
+    ({ records } = await collect({ apiKey: fb.apiKey, groups, start, end, maxWaitSeconds: fb.maxWaitSeconds, pollSeconds: fb.pollSeconds, fetchImpl, wait, log }));
+  }
+  const audit = [];
   stats.recordsRetrieved = records.length;
   const keys = new Set();
   const out = [];
@@ -331,6 +368,7 @@ export async function fetchListings(cfg, log = () => {}, { previous = null, now 
     stats.photoUrls += post.photos.length;
     stats.expiredPhotoUrls += post.photos.filter((p) => p.expiresAt && Date.parse(p.expiresAt) <= now).length;
     const { listing, reason } = postToListing(post);
+    if (fb.dumpRaw) audit.push({ postId: post.postId, url: post.url, postedAt: post.postedAt, group: post.groupName, photos: post.photos.length, reason, text: post.text });
     if (!listing) { stats.rejected[reason] = (stats.rejected[reason] || 0) + 1; continue; }
     if (!listing.originalUrl || seen.has(listing.sourceId)) continue;
     seen.add(listing.sourceId);
@@ -341,5 +379,8 @@ export async function fetchListings(cfg, log = () => {}, { previous = null, now 
   if (records.length > fb.maxRecordsWarn) log(`facebook: WARNING ${records.length} records in one run (above FACEBOOK_MAX_RECORDS_WARN=${fb.maxRecordsWarn})`);
   log(`facebook: ${records.length} records (${stats.errorRecords} error records), ${stats.posts} posts, ${out.length} housing listings, ${stats.recordsWithImages} posts with image URLs`);
   out.sourceStats = stats;
+  // Verify runs only: every post's text + classification for the private
+  // (encrypted) parser audit. Never written in publish runs.
+  if (fb.dumpRaw) out.auditPosts = audit;
   return out;
 }
