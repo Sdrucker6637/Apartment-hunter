@@ -1,0 +1,61 @@
+name: Design snapshot (encrypted)
+
+# Manual. For design/UI review with REAL data, without re-scraping:
+# downloads the currently PUBLISHED (already sanitized) site data and its real
+# photos, optionally screenshots the deployed site at desktop / tablet / phone
+# sizes, and pushes everything ENCRYPTED (.github/verify-pubkey.pem) to the
+# `verify-output` branch. No scraping, no Bright Data calls.
+on:
+  workflow_dispatch:
+    inputs:
+      screenshots:
+        description: 'Also screenshot the deployed site (true/false)'
+        required: false
+        default: 'true'
+
+permissions:
+  contents: write
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Download the published data and its photos
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          url=$(gh api "repos/$GITHUB_REPOSITORY/pages" --jq .html_url)
+          echo "SITE_URL=$url" >> "$GITHUB_ENV"
+          mkdir -p out
+          curl -fsS "${url%/}/data/listings.json" -o out/listings.json
+          curl -fsS "${url%/}/data/status.json" -o out/status.json
+          node -e 'const d=require("./out/listings.json");console.log(`published listings: ${d.listings.length} · dataKind=${d.dataKind} · sanitized=${d.sanitized}`)'
+          node scripts/fetch-photos.js out/listings.json out
+      - name: Screenshot the deployed site
+        if: inputs.screenshots == 'true'
+        run: |
+          npm install --no-save playwright@1.56.1 >/dev/null 2>&1
+          npx playwright install --with-deps chromium >/dev/null 2>&1
+          BASE_URL="$SITE_URL" SHOTS_DIR=out/shots node scripts/screenshot.js
+      - name: Encrypt and push to verify-output
+        run: |
+          set -euo pipefail
+          tar czf results.tgz -C out .
+          openssl rand -out key.bin 32
+          openssl enc -aes-256-cbc -pbkdf2 -salt -in results.tgz -out results.tgz.enc -pass file:key.bin
+          openssl pkeyutl -encrypt -pubin -inkey .github/verify-pubkey.pem -in key.bin -out key.bin.enc
+          rm key.bin results.tgz
+          git config user.name "apartment-hunter-bot"
+          git config user.email "apartment-hunter-bot@users.noreply.github.com"
+          git checkout -q --orphan verify-output
+          git rm -rqf --cached .
+          git add -f results.tgz.enc key.bin.enc
+          git commit -qm "Encrypted design snapshot ($(date -u +%FT%TZ))"
+          git push -qf origin verify-output
+          echo "pushed encrypted snapshot"
