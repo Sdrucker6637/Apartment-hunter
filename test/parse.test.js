@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseListing, parseDateToken, findLaundry, classifyPost, findPrices } from '../scraper/parse.js';
+import { parseListing, parseDateToken, findLaundry, classifyPost, findPrices, findListingType, findRoommates } from '../scraper/parse.js';
 import { findNeighborhood } from '../scraper/neighborhoods.js';
 
 const REF = '2026-09-20T12:00:00Z';
@@ -63,8 +63,10 @@ test('price: total rent is never divided by bedrooms unless an even split is sta
     // [title, body, expected price, totalRent, priceType, priceBasis]
     ['$3,000 2BR, looking for someone to take the second room', '', null, 3000, 'unknown', null],
     ['2BR $3,000 total, your room is $1,400', '', 1400, 3000, 'room_share', 'explicit'],
-    ['2BR apartment $3,000 total, split evenly', '', 1500, 3000, 'room_share', 'calculated'],
-    ['Looking for roommate, 2BR in LES', 'Rent is $2,900. We split it evenly.', 1450, 2900, 'room_share', 'calculated'],
+    // "Split evenly" without a stated headcount: never divided by the bedroom count (2026-09-26).
+    ['2BR apartment $3,000 total, split evenly', '', null, 3000, 'unknown', null],
+    ['Looking for roommate, 2BR in LES', 'Rent is $2,900. We split it evenly.', null, 2900, 'unknown', null],
+    ['2BR apartment $3,000 total, split evenly between 2 people', '', 1500, 3000, 'room_share', 'calculated'],
     ['3BR, $4,200/mo, split three ways', '', 1400, 4200, 'room_share', 'calculated'],
     ['Room available for $1,400', '', 1400, null, 'room_share', 'explicit'],
     ['Lease takeover: 2BR in Crown Heights, $3,000 total', 'Washer/dryer in unit. $3,000 deposit.', null, 3000, 'unknown', null],
@@ -188,4 +190,42 @@ test('held-out misses: laundry in home, remainder lease, possessive neighborhood
   assert.equal(extractText({ title: '1 BR', text: 'Amenities of this home: Dishwasher, Laundry in home (free), Elevator' }).laundry, 'in_unit');
   assert.equal(extractText({ title: 'Studio', text: 'Lease details: Remainder lease duration Sep 7 - Nov 7 (with option to renew directly with the building)' }).listingType, 'LEASE_TAKEOVER');
   assert.equal(findNeighborhood('on one of Astoria’s most gorgeous blocks').neighborhood, 'Astoria');
+});
+
+// Regressions from the real Facebook audit (2026-09-26 snapshot); texts paraphrased.
+test('facebook audit: split without headcount, "$" after the number, repeated headline price', () => {
+  const lt = parseListing({ title: 'LEASE TAKEOVER: Room in a 3BR/1BA in Prime Lower East Side', body: 'Details: $1,833/month (rent split equally between roommates). Utilities around $100/month.' });
+  assert.equal(lt.price, 1833, 'the stated amount is one person\'s share, never total ÷ 3 bedrooms');
+  assert.notEqual(lt.priceBasis, 'calculated');
+  const trailing = parseListing({ title: 'Private room for rent Court Sq, Long Island City', body: 'Available from October. 1300$ month all included.' });
+  assert.equal(trailing.price, 1300);
+  const loft = parseListing({ title: 'BUSHWICK TOP FLOOR LOFT 2 BED - $3,495', body: 'BUSHWICK TOP FLOOR LOFT 2 BED - $3,495. 2 Bed | 1 Bath - $3,495. By the L train.' });
+  assert.equal(loft.price, null, 'a 2-bed whole-unit price repeated three times is not "your share"');
+  assert.equal(loft.totalRent, 3495);
+});
+
+test('facebook audit: listing types', () => {
+  assert.equal(findListingType('1-BEDROOM FOR RENT – JACKSON HEIGHTS. Beautifully renovated 1BR/1BA.'), 'ENTIRE_APARTMENT');
+  assert.equal(findListingType('Private rooms for rent in a shared 3 bedroom apartment. Bedrooms priced $1000 - $1400'), 'ROOM_IN_SHARED_APARTMENT');
+  assert.equal(findListingType('ROOMS AVAILABLE! HUGE 4 BED / 2 BATH IN WEST HARLEM'), 'ROOM_IN_SHARED_APARTMENT');
+  assert.equal(findListingType('NO BROKER FEE luxury LIC | finding last roommate for flex room! in-unit W/D'), 'ROOM_IN_SHARED_APARTMENT');
+  assert.equal(findListingType('Hey everyone, we are looking to transfer lease for our 1BR at The Westport'), 'LEASE_TAKEOVER');
+  assert.equal(findListingType('Looking to reassign my 2 bed/2 bath lease on the upper west side'), 'LEASE_TAKEOVER');
+  assert.equal(findListingType('Studio-sized bedroom in shared 3 bed with just one other person in Washington Heights'), 'ROOM_IN_SHARED_APARTMENT');
+  assert.equal(findListingType('Studio in East Village on flexible lease terms'), 'ENTIRE_APARTMENT');
+  assert.equal(parseListing({ title: '10/1 CLINTON HILL LEASE TAKEOVER - $2,250 1 ROOM IN A 2 BD', body: 'I am subletting my room.' }).kind, 'room');
+});
+
+test('facebook audit: shared-bathroom wording is not a roommate count', () => {
+  assert.equal(findRoommates("The apartment has two bathrooms. (You'd share a bathroom with one roommate.)").roommates, null);
+  assert.equal(findRoommates('Available room is downstairs + shares a bathroom with one other person').roommates, null);
+  assert.equal(findRoommates('3 bedrooms = 2 other roommates. In-unit washer/dryer.').roommates, 2);
+  assert.equal(findRoommates("You'd be joining two roommates (26 and 28) who've lived here for 2 years").roommates, 2);
+});
+
+test('facebook audit: "no broker fee" before an explicit monthly rent is not a fee amount', () => {
+  assert.deepEqual(findPrices('NO BROKER FEE | 2BR / 1BA | $2,890/MONTH').map((p) => p.amount), [2890]);
+  assert.deepEqual(findPrices('Broker fee $2,890'), [], 'an actual fee is still excluded');
+  assert.deepEqual(findPrices('Security deposit $1,000'), []);
+  assert.deepEqual(findPrices('New York, NY 10004 $4,100/month').map((p) => p.amount), [4100], 'a ZIP code before a price is not "10004$"');
 });

@@ -278,3 +278,59 @@ test('snapshot reuse: downloads an existing ready snapshot and never starts a co
   const none = async (url) => (url.includes('/snapshots?') ? res(200, []) : res(404, {}));
   await assert.rejects(fetchListings(cfg, () => {}, { fetchImpl: none }), /no collection was started/);
 });
+
+// Regressions from the full audit of the 189-post real snapshot (2026-09-26); texts paraphrased.
+test('audit: offers the first version rejected are now recognized', () => {
+  for (const t of [
+    "Yo - I'm Chadd and I'm looking for 2x roommates to move into my Bushwick apt on October 1st. 3 beds 1.5 bath.",
+    'Looking for someone to take over a bright, spacious 1-bedroom apartment in Bay Ridge. Lease from Oct 1.',
+    'Looking to reassign my 2 bed/2 bath lease on the upper west side starting late November. $7920/month.',
+    'Studio-sized bedroom in shared 3 bed with just one other person in Washington Heights.',
+    'Room/ROOMMATE/Shared apartment $1,100 utilities included, 20 minutes to the city.',
+    '1 Bed | 1 Bath $4,500/month. 1 Month Free & No Broker Fee. In-unit washer.',
+    "i'm looking to have someone take over my room oct-july in hell's kitchen. Rent is $2175.",
+    "Short-Term Sublet (Female Only). I'm looking for a female subletter for my bedroom in a 2bed/1bath apartment.",
+    "Hi everyone! I'm looking for a tenant for my FiDi studio from Nov 2026 through May 2027.",
+    "I'm still looking to fill a room in Williamsburg by October 1st. If anyone has any leads or needs a place, DM me.",
+  ]) {
+    const r = classifyHousing(t);
+    assert.equal(r.housing, true, t);
+    assert.ok(postToListing(recordToPost(rec({ content: t }))).listing, `listing: ${t}`);
+  }
+});
+
+test('audit: seekers the first version accepted are now rejected', () => {
+  for (const t of [
+    "My friend is relocating to NYC and is looking to sublet a one bedroom apartment. Start: early Oct.",
+    "Hi! I'm looking to sublease near FiDi from October - December.",
+    'Looking to sublet a 1BR or studio in the UES. My budget is ~$3500 a month.',
+    'Looking for lease takeover or long term sublet starting early October! Budget: Under 2,000 per month. Please dm if you have a room available!',
+    'NYC SUBLET / ROOMMATE SEARCH. I am looking for a room/sublet in NYC. Budget: around $1,200–$1,700/month. If you have a room available, feel free to message.',
+    'Looking for a Roommate to Apartment Hunt With in Manhattan',
+    'LOOKING FOR: Sublease to join in on or Roommates to sign a lease with',
+    'I’m looking to fill a room/long term SUBLET in any of these neighborhoods: East Village, LES, Nolita.',
+    'SHORT-TERM ROOM / SUBLET WANTED — NYC',
+  ]) assert.equal(classifyHousing(t).housing, false, t);
+  // …while "ROOMMATE WANTED" on its own is still an offer.
+  assert.equal(classifyHousing('Roommate wanted! Private room in Astoria, $1,050/month').housing, true);
+});
+
+test('audit: offers outside NYC are dropped', () => {
+  assert.equal(classifyHousing('Private Rooms in Harrison/East Newark — From $750/mo. Renovated 2BR near NJIT.').reason, 'outside-nyc');
+  assert.equal(classifyHousing('Beautiful Tudor home near Sarah Lawrence College in Yonkers, 4 bedrooms, available now, $5,000/month').reason, 'outside-nyc');
+  assert.equal(classifyHousing('Room for rent in Jersey City near the PATH, $1,200/month').housing, true, 'nearby NJ is kept');
+});
+
+test('audit: whole-apartment wording turns a lone "likely share" into the apartment total', () => {
+  const bedStuy = listingFrom('Newly Renovated Bed-Stuy Apartment | In-Unit W/D & Dishwasher | Next to A/C Trains\nAvailable now. Rent $4,000/month.');
+  assert.equal(bedStuy.listingType.value, 'ENTIRE_APARTMENT');
+  assert.equal(bedStuy.price.share, null, 'multi/unknown-bedroom apartment: never a share');
+  assert.equal(bedStuy.price.total, 4000);
+  const elmhurst = listingFrom('1-BEDROOM IN ELMHURST, QUEENS\nMove-in ready 1BR/1BA. Rent $1,800/month. Available now.');
+  assert.equal(elmhurst.listingType.value, 'ENTIRE_APARTMENT');
+  assert.equal(elmhurst.price.share, 1800, 'a whole 1BR: its rent is what you would pay');
+  assert.equal(elmhurst.price.split, 'whole_unit');
+  const room = listingFrom("i'm looking to have someone take over my room oct-july in hell's kitchen, apartment is 51st and 9th. Rent is $1,575.");
+  assert.notEqual(room.listingType.value, 'ENTIRE_APARTMENT', 'taking over a room is not an entire apartment');
+  assert.equal(room.price.share, 1575);
+});

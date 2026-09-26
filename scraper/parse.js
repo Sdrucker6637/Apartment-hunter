@@ -39,7 +39,10 @@ export function findPrices(text) {
     if (/k$/i.test(numRaw)) amount = Math.round(parseFloat(numRaw) * 1000);
     else amount = parseInt(numRaw.replace(/,/g, ''), 10);
     // Bare numbers without "$" or "/mo" are too ambiguous (years, street numbers, sq ft).
-    if (!dollar && !unit && !/k$/i.test(numRaw)) continue;
+    // "1300$ month": a dollar sign right after the number marks a price as well.
+    // …but not "NY 10004 $4,100", where the "$" starts the next price.
+    const trailingDollar = /^\s?\$(?!\s?\d)/.test(text.slice(idx + raw.length, idx + raw.length + 4));
+    if (!dollar && !unit && !trailingDollar && !/k$/i.test(numRaw)) continue;
     if (amount < MIN_RENT || amount > MAX_RENT) continue;
     // Context stays within the current sentence so "No broker fee. Rent $1,500" still counts.
     const before = text.slice(Math.max(0, idx - 30), idx).split(/[.!?;\n]\s/).pop();
@@ -49,7 +52,10 @@ export function findPrices(text) {
     if (NON_MONTHLY_AFTER.test(text.slice(idx + raw.length, idx + raw.length + 12))) continue;
     // A price written "/mo" or "/month" is rent even if a deposit is mentioned next to it.
     const monthlyUnit = unit && /mo/i.test(unit);
-    if (NON_RENT_BEFORE.test(before) || (!monthlyUnit && NON_RENT_AFTER.test(after))) continue;
+    // "NO BROKER FEE | 2BR / 1BA | $2,890/MONTH": "no fee" right before an explicit monthly amount is rent.
+    const noFeeRent = monthlyUnit && /\bno[\s-]+(?:broker(?:'s|’s)?\s+|amenity\s+)?fees?\b|\bno\s+broker\b/i.test(before)
+      && !/deposit|security|utilit|income|salary|credit|application|parking/i.test(before);
+    if ((NON_RENT_BEFORE.test(before) && !noFeeRent) || (!monthlyUnit && NON_RENT_AFTER.test(after))) continue;
     const ctx = (before + ' ' + after).toLowerCase() + ' ' + (unit || '').toLowerCase();
     const perPerson = /per person|each|per room|\/room|pp\b|\/person|my share|your share|per roommate/.test(ctx);
     const total = /\btotal\b|whole (apt|apartment|unit)|entire (apt|apartment|unit)|for the (apt|apartment|unit)/.test(ctx);
@@ -129,6 +135,8 @@ export function findRoommates(text) {
     const g = new RegExp(re.source, 'gi');
     for (const m of text.matchAll(g)) {
       if (WANTING_BEFORE.test(text.slice(Math.max(0, m.index - 40), m.index))) continue;
+      // "share a bathroom with one other person" describes the bathroom, not the household.
+      if (/\bbath(?:room)?s?\s+(?:with\s+)?$/i.test(text.slice(Math.max(0, m.index - 25), m.index))) continue;
       const n = toNumber(m[1]);
       if (n != null && n <= 8) return { roommates: n, roommatesSource: 'stated' };
     }
@@ -149,10 +157,10 @@ export function findRoommates(text) {
 // ---------- listing type ----------
 // Only from explicit wording; UNKNOWN otherwise.
 const TYPE_RULES = [
-  ['LEASE_TAKEOVER', /\blease\s+(?:take[- ]?over|transfer|assignment|break)\b|\btak(?:e|ing)\s+over\s+(?:my|our|the)\s+lease\b|\bremainder\s+(?:of\s+(?:my|our|the)\s+)?lease\b/i],
+  ['LEASE_TAKEOVER', /\blease\s+(?:take[- ]?over|transfer|assignment|re-?assignment|break)\b|\b(?:re)?assign(?:ing)?\s+(?:my|our|the)(?:\s+[\w/-]+){0,4}?\s+lease\b|\btransfer(?:ring)?\s+(?:my|our|the)?(?:\s+[\w/-]+){0,3}?\s*lease\b|\btak(?:e|ing)\s+over\s+(?:my|our|the)\s+lease\b|\bremainder\s+(?:of\s+(?:my|our|the)\s+)?lease\b/i],
   ['SUBLET', /\bsub-?let(?:ting)?\b|\bsub-?leas(?:e|ing)\b|\bshort[- ]term\s+(?:rental|stay|sublet|room|housing)\b/i],
-  ['ROOM_IN_SHARED_APARTMENT', /\b(?:private|spare|furnished|master|sunny|big|large|cozy|small)?\s*(?:bed)?room\s+(?:for\s+rent|available|open|in\s+(?:a|an|my|our|the)\b|in\s+(?:a\s+)?(?:\d|two|three|four|five)\s*-?\s*(?:br|bd|bed(?:room)?)s?\b)|\b(?:\d|one|two|three|four)\s+(?:private\s+)?(?:bed)?rooms?\s+(?!(?:[\w-]+\s+){0,2}(?:apartment|apt|unit|flat|house|home)\b)(?:[\w-]+\s+){0,4}(?:available|open(?:ing)?(?:\s+up)?|for\s+rent)\b|\broom(?:mate|ie)s?\s+(?:wanted|needed)\b|\blooking\s+for\s+(?:an?\s+|\w+\s+)?(?:roommate|roomie|housemate)|\bshared\s+(?:apartment|apt|house|home)\b|\broom\s*share\b|\bto\s+fill\s+(?:(?:the|our|a|my)\s+)?(?:\w+\s+)?(?:bed)?room\b|\bprivate\s+(?:bed)?room\b|\bspare\s+(?:bed)?room\b|\bsecond\s+bedroom\b|\b(?:this|the)\s+room\s+(?:is|can\s+be)\b|\broom\s+is\s+available\b|\bshared\s+common\s+(?:areas?|spaces?)\b|^\W*(?:big\s+|large\s+|sunny\s+|cozy\s+)?(?:bed)?room\s+with\b/im],
-  ['ENTIRE_APARTMENT', /\b(?:entire|whole)\s+(?:apartment|apt|unit|place|home|house|floor)\b|\b(?:vacant|empty)\s+(?:apartment|apt|unit)\b|\b(?:apartment|apt|studio|house|\d\s?br|\d[- ]bed(?:room)?(?:\s+apartment)?)\s+for\s+rent\b|\b(?:\d|one|two|three|four)[- ]?(?:bed(?:room)?|br)s?\s*(?:[/,]\s*(?:\d|one|two)[- ]?(?:full\s+)?bath(?:room)?s?\s*)?(?:w\/\s*\w+\s+)?(?:apartment|apt|flat|unit|residences?)\b|\bapartment\s+(?:is\s+)?(?:available|for\s+rent)\b|\bstudio\s+(?:in|apartment|apt|with|offers|lease)\b|^\W*studio\b|\b\d\s?BR\s+in\b|\b(?:my|the|this)\s+flat\b|\blisting\s+a\s+(?:vacant\s+)?(?:apartment|apt|place)\b/im],
+  ['ROOM_IN_SHARED_APARTMENT', /\brooms\s+(?:for\s+rent|available)\b|\b(?:bed)?room\s+in\s+(?:a\s+)?shared\b|\broom\s+pricing\b|\broommate\s+is\s+waiting\b|\b(?:master|flex|true)\s+room\s*[:(]|\b(?:last|another|new|3rd|third|2nd|second|4th|fourth)\s+room(?:mate|ie)\s+(?:needed|wanted)\b|\bfinding\s+(?:a\s+|the\s+)?last\s+room(?:mate|ie)\b|\b(?<!\b(?:\d|one|two|three|four)[- ]?)(?:private|spare|furnished|master|sunny|big|large|cozy|small)?\s*(?:bed)?room\s+(?:for\s+rent|available|open|in\s+(?:a|an|my|our|the)\b|in\s+(?:a\s+)?(?:\d|two|three|four|five)\s*-?\s*(?:br|bd|bed(?:room)?)s?\b)|\b(?:\d|one|two|three|four)\s+(?:private\s+)?(?:bed)?rooms?\s+(?!(?:[\w-]+\s+){0,2}(?:apartment|apt|unit|flat|house|home)\b)(?:[\w-]+\s+){0,4}(?:available|open(?:ing)?(?:\s+up)?|for\s+rent)\b|\broom(?:mate|ie)s?\s+(?:wanted|needed)\b|\blooking\s+for\s+(?:an?\s+|\w+\s+)?(?:roommate|roomie|housemate)|\bshared\s+(?:apartment|apt|house|home)\b|\broom\s*share\b|\bto\s+fill\s+(?:(?:the|our|a|my)\s+)?(?:\w+\s+)?(?:bed)?room\b|\bprivate\s+(?:bed)?room\b|\bspare\s+(?:bed)?room\b|\bsecond\s+bedroom\b|\b(?:this|the)\s+room\s+(?:is|can\s+be)\b|\broom\s+is\s+available\b|\bshared\s+common\s+(?:areas?|spaces?)\b|^\W*(?:big\s+|large\s+|sunny\s+|cozy\s+)?(?:bed)?room\s+with\b/im],
+  ['ENTIRE_APARTMENT', /\b(?:entire|whole)\s+(?:apartment|apt|unit|place|home|house|floor)\b|\b(?:vacant|empty)\s+(?:apartment|apt|unit)\b|\b(?:apartment|apt|studio|house|\d\s?br|\d[- ]bed(?:room)?(?:\s+apartment)?)\s+for\s+rent\b|\b(?:\d|one|two|three|four)[- ]?(?:bed(?:room)?|br)s?\s*(?:[/,]\s*(?:\d|one|two)[- ]?(?:full\s+)?bath(?:room)?s?\s*)?(?:w\/\s*\w+\s+)?(?:apartment|apt|flat|unit|residences?)\b|\bapartment\s+(?:is\s+)?(?:available|for\s+rent)\b|\bstudio\s+(?:in|apartment|apt|with|offers|lease)\b|^\W*studio\b(?!-sized)|\b\d\s?BR\s+in\b|\b(?:my|the|this)\s+flat\b|\blisting\s+a\s+(?:vacant\s+)?(?:apartment|apt|place)\b/im],
 ];
 
 export function findListingType(text) {
@@ -276,8 +284,12 @@ export function classifyPost({ title = '', body = '', flair = '' }) {
 const WHOLE_UNIT_RE = /\b(?:lease (?:takeover|transfer|assignment)|take over (?:my|our|the) lease|entire (?:apt|apartment|unit|place)|whole (?:apt|apartment|unit|place)|no[- ]fee (?:\d\s*(?:br|bed)|apartment|apt)|(?:apartment|apt|unit) for rent|sublet(?:ting)? (?:my|our|the) (?:entire |whole )?(?:apt|apartment|studio|1\s*br|one bedroom))\b/i;
 const ROOM_RE = /\b(?:room|bedroom)\s+(?:in|available|for rent|for sublet|open)|\broommates?\b|\broomies?\b|\bhousemates?\b|\bprivate room\b|\bshared?\b/i;
 
+// A lease takeover of one room ("LEASE TAKEOVER: Room in a 3BR", "take over my room") is a room.
+const ROOM_TAKEOVER_RE = /\b(?:(?:bed)?room in (?:a|an|my|our)\b|tak(?:e|ing) over (?:my|their|her|his|the|our) (?:bed)?room\b|\d\s*room in\b|1 room in\b)/i;
+
 export function listingKind(text) {
   const t = findListingType(text);
+  if (t === 'LEASE_TAKEOVER' && ROOM_TAKEOVER_RE.test(text || '')) return 'room';
   return t === 'ENTIRE_APARTMENT' || t === 'LEASE_TAKEOVER' ? 'apartment' : 'room';
 }
 
@@ -325,11 +337,14 @@ function pickSharePrice(prices, text, { kind, bedrooms, roomsAvailable }) {
   }
 
   const wholeAmount = totalRent ?? (kind === 'apartment' ? plain[0]?.amount : null)
-    ?? (plain.length === 1 && bedrooms >= 2 && plain[0].amount > LIKELY_SHARE_MAX ? plain[0].amount : null);
+    ?? (new Set(plain.map((p) => p.amount)).size === 1 && bedrooms >= 2 && plain[0].amount > LIKELY_SHARE_MAX ? plain[0].amount : null);
   if (wholeAmount != null) {
     if (EVEN_SPLIT_RE.test(text)) {
+      // Divide only by a headcount the post states ("split 3 ways", "between 2
+      // people"); never by the bedroom count. "$1,833/month (rent split equally
+      // between roommates)" is already one person's share.
       const ways = SPLIT_WAYS_RE.exec(text) || SPLIT_PEOPLE_RE.exec(text);
-      const people = ways ? ({ two: 2, three: 3, four: 4 }[ways[1].toLowerCase()] ?? +ways[1]) : bedrooms;
+      const people = ways ? ({ two: 2, three: 3, four: 4 }[ways[1].toLowerCase()] ?? +ways[1]) : null;
       if (people >= 2) {
         const share = Math.round(wholeAmount / people);
         return { price: share, priceMax: share, totalRent: wholeAmount, priceType: 'room_share', priceBasis: 'calculated' };
@@ -342,7 +357,7 @@ function pickSharePrice(prices, text, { kind, bedrooms, roomsAvailable }) {
     return { ...none, totalRent: wholeAmount };
   }
 
-  const amts = plain.map((p) => p.amount);
+  const amts = [...new Set(plain.map((p) => p.amount))];
   if (!amts.length) return none;
   // Several prices in a room post ("Room A $1,400 / Room B $1,650") read as a range.
   const useRange = (roomsAvailable ?? 1) > 1 || amts.length > 1;

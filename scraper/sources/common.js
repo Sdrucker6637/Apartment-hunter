@@ -57,9 +57,10 @@ export function fillFromText(listing, text) {
 // Shared mapping for free-text posts (Reddit, Facebook Groups): the
 // conservative price rules, stated-only roommates, explicit listing types.
 // Returns null for posts that are someone SEEKING housing.
-export function textPostListing({ title = '', body = '', flair = '', postedAt = null }) {
+export function textPostListing({ title = '', body = '', flair = '', postedAt = null, trustOffer = false }) {
   const p = parseListing({ title, body, flair, postedAt });
-  if (p.postType === 'seeking') return null;
+  if (p.postType === 'seeking' && !trustOffer) return null;
+  if (trustOffer) p.postType = 'offering';
   const basis = (b) => (b ? 'explicit' : null);
   const x = extractText({ title, text: body });
   return {

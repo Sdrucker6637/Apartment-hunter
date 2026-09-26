@@ -21,7 +21,10 @@
 // Privacy: poster names and profile URLs from the records are never copied.
 // Contact details inside post text go through the usual sanitizer before
 // anything is published.
-import { textPostListing } from './common.js';
+import { textPostListing, NEARBY_NJ } from './common.js';
+import { findNeighborhood } from '../neighborhoods.js';
+import { findBedrooms } from '../parse.js';
+import { field } from '../schema.js';
 
 export const API = 'https://api.brightdata.com/datasets/v3';
 export const DATASET_ID = 'gd_lz11l67o2cb3r0lkj3';
@@ -253,14 +256,53 @@ export function recordToPost(rec, { groupUrl = null } = {}) {
 
 // ---------- housing detection ----------
 
-const OFFER = /\b(?:rooms? (?:is |are )?(?:available|for rent|open|opening)|private (?:bed)?room|shared room|room for (?:rent|sublet)|(?:bed)?room in (?:a |an |my |our )|roommate (?:replacement|wanted|needed)|replacement roommate|looking for (?:a |an |one |two |\d )?(?:new |3rd |third |2nd |second |4th |fourth )?(?:roommates?|roomies?|housemates?)|lease (?:takeover|transfer|assignment|break)|take over (?:my|our|the) lease|sub-?let|sub-?lease|(?:apartment|apt|unit|studio|home|house) (?:is )?(?:available|for rent)|(?:\d|one|two|three|four)\s*(?:br|bd|bed(?:room)?s?)\b[^.\n]{0,40}\b(?:available|for rent)|renting (?:out )?(?:a |my |our |one |the )?(?:room|bedroom|apartment|apt|studio))\b/i;
-const HOUSING_NOUN = /\b(?:room|bedroom|apartment|apt|studio|\d\s*(?:br|bd)|sublet|sublease|lease)\b/i;
-const MONTHLY_PRICE = /\$\s?\d{1,2},?\d{3}(?:\s*(?:\/|per|a)\s*(?:mo(?:nth)?|m)\b)?/i;
+// Offer phrases. Each addition below came from real posts the audit of the
+// 2026-09-26 snapshot found rejected (see test/facebook.test.js).
+const OFFER = new RegExp([
+  String.raw`rooms? (?:is |are )?(?:available|for rent|open|opening)`,
+  String.raw`private (?:bed)?rooms?`, String.raw`shared room`, String.raw`room for (?:rent|sublet)`,
+  String.raw`(?:bed)?room in (?:a |an |my |our )?shared\b`, String.raw`(?:bed)?room in (?:a |an |my |our )`,
+  String.raw`roommate (?:replacement|wanted|needed)`, String.raw`replacement roommate`,
+  String.raw`looking for (?:a |an |one |two |\d+x? |one more |two more |another )?(?:new |last |3rd |third |2nd |second |4th |fourth )?(?:roommates?|roomies?|housemates?)`,
+  String.raw`looking for (?:a |an )?(?:\w+ )?(?:tenant|subletter|subleaser|sub-?tenant)s? (?:for|to)\b`,
+  String.raw`looking to fill (?:a |the |our |my |last |the last )?(?:\w+ )?(?:bed)?room`,
+  String.raw`lease (?:takeover|transfer|assignment|break)`,
+  String.raw`tak(?:e|ing) over (?:my|our|the|a|an|their|her|his)(?:\s+[\w,-]+){0,4}?\s+(?:lease|room|bedroom|apartment|apt|unit|studio)`,
+  String.raw`(?:re)?assign(?:ing)? (?:my|our|the)(?:\s+[\w/-]+){0,4}?\s+lease`,
+  String.raw`transfer (?:my|our|the)(?:\s+[\w/-]+){0,3}?\s+lease`,
+  String.raw`sub-?let`, String.raw`sub-?lease`,
+  String.raw`(?:apartment|apt|unit|studio|home|house) (?:is )?(?:available|for rent)`,
+  String.raw`(?:\d|one|two|three|four)\s*(?:br|bd|bed(?:room)?s?)\b[^.\n]{0,40}\b(?:available|for rent)`,
+  String.raw`renting (?:out )?(?:a |my |our |one |the )?(?:room|bedroom|apartment|apt|studio)`,
+].map((x) => String.raw`\b${x}\b`).join('|'), 'i');
+const HOUSING_NOUN = /\b(?:rooms?|bedrooms?|apartments?|apts?|studios?|\d\s*(?:br|bd|beds?)|sublet|sublease|lease|home|house)\b/i;
+// A monthly amount: "$1,300", "$1300/mo", "1300$ month".
+const MONTHLY_PRICE = /\$\s?\d{1,2},?\d{3}(?:\s*(?:\/|per|a)\s*(?:mo(?:nth)?|m)\b)?|\b\d{1,2},?\d{3}\s?\$/i;
+// Listing details a seeker would not write, used with a price and a housing noun.
+const LISTING_CUE = /\bavailable\b|\bmove[- ]?in\b|\bfor rent\b|\bno (?:broker )?fee\b|\bsecurity deposit\b|\bdeposit\b|\b\d+[- ]?(?:month|year|yr)s? lease\b|\bshared (?:apartment|apt)\b|\butilities (?:are )?included\b/i;
+
 // Someone looking FOR housing. Up to three words may sit between the verb and
 // the housing noun ("looking for a furnished 1bd"), but not people words, so
 // "looking for a roommate for my room" stays an offer.
 const PEOPLE_WORD = String.raw`(?!(?:roommates?|roomies?|housemates?|someone|somebody|tenants?|persons?|people|female|male|guy|girl|woman|women|man|men|subletters?|subleasers?)\b)`;
-const SEEKING = new RegExp(String.raw`\b(?:looking for|seeking|searching for|in search of|iso|in need of|need(?:ing)?)\s+(?:an?\s+|any\s+|some\s+)?(?:${PEOPLE_WORD}[\w/-]+\s+){0,3}?(?:rooms?|apartments?|apts?|place|housing|sublet|sublease|studio|home|1\s*(?:br|bd|bed(?:room)?)|share)\b|\banyone (?:know|have|has) (?:of )?(?:an?\s+|any\s+)?(?:place|room|apartment|apt|sublet|housing|leads?)\b|^\s*iso\b`, 'gim');
+const SEEKING = new RegExp([
+  String.raw`\b(?:looking for|seeking|searching for|in search of|iso|in need of|need(?:ing)?)\s*:?\s+(?:an?\s+|any\s+|some\s+)?(?:${PEOPLE_WORD}[\w/-]+\s+){0,3}?(?:rooms?|apartments?|apts?|place|housing|sublet|sublease|studio|home|1\s*(?:br|bd|bed(?:room)?)|share)\b`,
+  // "looking to sublet a 1BR", "looking to sublease near FiDi" (not "looking to sublet my room")
+  String.raw`\blooking to sub-?(?:let|lease)\s+(?:(?:a|an)\s+(?:place|one[- ]bedroom|1\s*(?:br|bd|bed(?:room)?)|studio|apartment|apt|room)\b|(?:near|in|around)\b)`,
+  String.raw`\blooking for (?:roommates?|roomies?) or (?:an? )?(?:open )?room\b`,
+  // "ROOM / SUBLET WANTED" (someone wants one); "ROOMMATE WANTED" alone stays an offer
+  String.raw`\b(?:room|sublet|sublease|apartment|apt|housing|place|studio)\s*(?:\/\s*(?:room|roommate|sublet|sublease|apartment)\s*)?wanted\b`,
+  String.raw`\banyone (?:know|have|has) (?:of )?(?:an?\s+|any\s+)?(?:place|room|apartment|apt|sublet|housing|leads?)\b`,
+  String.raw`^\s*iso\b`,
+].join('|'), 'gim');
+// Seeker signals that hold wherever they appear, unless the post clearly
+// offers the poster's own place: a stated budget, "apartment hunt with",
+// "any of these neighborhoods".
+const SEEKER_CUE = /\b(?:my|our|max(?:imum)?)\s+budget\b|\bbudget\s*(?::|is|of)?\s*(?:~|up to|under|around|about|approx\.?|max(?:imum)?|below|less than)?\s*~?\s*\$?\s*\d|\bapartment[- ]hunt(?:ing)?\s+with\b|\bto team up\b|\bin any of these neighbou?rhoods\b/i;
+const OWN_PLACE = /\b(?:my|our|her|his|their)\s+(?:room|bedroom|apartment|apt|studio|place|lease|unit|flat)\b|\broom (?:is )?available\b|\bavailable (?:room|bedroom)\b|\bfor rent\b/gi;
+// "…if you have a room available" is addressed to the reader, not an offer.
+const ASKING_READER = /\byou\s+(?:have|know\s+of|got)\s+(?:a|an|any)?\s*$/i;
+const offersOwnPlace = (t) => [...t.matchAll(OWN_PLACE)].some((m) => !ASKING_READER.test(t.slice(Math.max(0, m.index - 25), m.index)));
 
 // Index of the first real seeking phrase, or -1. Ignored: rhetorical
 // questions ("Looking for a place to stay in Manhattan? This studio…") and
@@ -279,7 +321,10 @@ function seekingIndex(t) {
   return -1;
 }
 
-// Returns { housing: boolean, reason } — reasons: seeking | no-text | not-housing | offer.
+// Offers outside NYC (the source groups also carry NJ / Westchester posts).
+const OUTSIDE_NYC = /\b(?:NJ|New Jersey|Yonkers|Westchester|Nassau|Suffolk|Connecticut|Harrison|Newark)\b/;
+
+// Returns { housing: boolean, reason } — reasons: seeking | no-text | not-housing | outside-nyc | offer.
 export function classifyHousing(text) {
   const t = String(text || '');
   if (!t.trim()) return { housing: false, reason: 'no-text' };
@@ -287,9 +332,41 @@ export function classifyHousing(text) {
   const seek = seekingIndex(t);
   // Seeking unless an offer phrase comes first ("Room available … looking for someone clean").
   if (seek !== -1 && (offer === -1 || seek < offer)) return { housing: false, reason: 'seeking' };
-  if (offer !== -1 && HOUSING_NOUN.test(t)) return { housing: true, reason: 'offer' };
-  if (MONTHLY_PRICE.test(t) && /\b(?:room|bedroom|apartment|apt|studio|\d\s*(?:br|bd))\b/i.test(t) && /\bavailable\b|\bmove[- ]?in\b|\bfor rent\b/i.test(t)) return { housing: true, reason: 'offer' };
-  return { housing: false, reason: 'not-housing' };
+  if (SEEKER_CUE.test(t) && !offersOwnPlace(t)) return { housing: false, reason: 'seeking' };
+  let housing = offer !== -1 && HOUSING_NOUN.test(t);
+  if (!housing && MONTHLY_PRICE.test(t) && /\b(?:room|bedroom|apartment|apt|studio|\d\s*(?:br|bd|bed))\b/i.test(t) && LISTING_CUE.test(t)) housing = true;
+  if (!housing) return { housing: false, reason: 'not-housing' };
+  if (OUTSIDE_NYC.test(t) && !NEARBY_NJ.test(t) && !findNeighborhood(t).borough) return { housing: false, reason: 'outside-nyc' };
+  return { housing: true, reason: 'offer' };
+}
+
+// "Newly Renovated Bed-Stuy Apartment | …", "1-BEDROOM IN ELMHURST … 1BR/1BA":
+// the opening names a whole apartment and nothing offers a room. The shared
+// parser leaves these UNKNOWN and reads their single price as a likely room
+// share; here that price becomes the apartment's total instead (your share
+// only when the whole unit is a studio/1BR).
+const APARTMENT_OPENING = /\b(?:apartment|apt|studio|condo|(?:\d|one|two|three)[- ]?(?:bed(?:room)?|br|bdr)s?\s*(?:apartment|apt|in\b|[|/,]\s*\d\s*(?:ba|bath)))\b|\b\d\s*bed\s*\|?\s*\d\s*bath\b|\b\dbed\dbath\b/i;
+const ROOM_OFFER_WORDS = /\b(?:rooms?\s+(?:for\s+rent|available|in\s+(?:a|an|my|our|the|this)\b)|(?:private|shared|master|flex|spare)\s+(?:bed)?room|roommates?|roomies?|housemates?|(?<![\d-]\s?)bedroom\s+(?:in\s+(?:a|an|my|our|the|this|shared)\b|available)|fill\s+(?:a|the|our|my|last)\b|(?:my|their|her|his|our)\s+room\b|bedroom\s+in\s+(?:a\s+)?shared\b)/i;
+function entireApartmentFromWording(l, text) {
+  if (l.listingType.value && l.listingType.value !== 'UNKNOWN') return;
+  const opening = text.slice(0, 200);
+  if (!APARTMENT_OPENING.test(opening) || ROOM_OFFER_WORDS.test(text)) return;
+  l.listingType = field('ENTIRE_APARTMENT', 'explicit');
+  if (l.bedrooms.value == null) {
+    const b = findBedrooms(opening) ?? (/\bstudio\b/i.test(opening) ? 0 : null) ?? (/\b1\s*bed\s*\|?\s*1\s*bath\b|\b1bed1bath\b/i.test(opening) ? 1 : null);
+    if (b != null) l.bedrooms = field(b, 'explicit');
+  }
+  if (l.priceConfidence === 'likely' && l.price.monthly != null) {
+    const beds = l.bedrooms.value;
+    if (beds === 0 || beds === 1) {
+      l.price = { monthly: l.price.monthly, max: l.price.max, type: 'whole_unit', basis: 'explicit' };
+      l.totalRent = field(l.price.monthly, 'explicit');
+    } else {
+      l.totalRent = field(l.price.monthly, 'explicit');
+      l.price = { monthly: null, type: 'unknown', basis: null };
+    }
+    l.priceConfidence = null;
+  }
 }
 
 const firstLine = (t) => {
@@ -302,8 +379,11 @@ export function postToListing(post) {
   if (!housing) return { listing: null, reason };
   const title = firstLine(post.text);
   const body = post.text;
-  const base = textPostListing({ title, body, postedAt: post.postedAt });
+  // The gate above already decided this is an offer; the shared classifier's
+  // broader "I'm looking for…" = seeking rule must not overrule it.
+  const base = textPostListing({ title, body, postedAt: post.postedAt, trustOffer: true });
   if (!base) return { listing: null, reason: 'seeking' };
+  entireApartmentFromWording(base, post.text);
   const group = post.groupName || (post.groupId ? `group ${post.groupId}` : 'Group');
   const photos = post.photos.filter((p) => !p.expiresAt || Date.parse(p.expiresAt) > Date.now());
   return {
@@ -342,7 +422,7 @@ export async function fetchListings(cfg, log = () => {}, { previous = null, now 
     provider: 'Bright Data', datasetId: DATASET_ID, groups, skippedGroups: fb.groups.length - groups.length,
     window: { start: start.toISOString(), end: end.toISOString() },
     recordsRetrieved: 0, errorRecords: 0, posts: 0, housingListings: 0,
-    rejected: { seeking: 0, 'not-housing': 0, 'no-text': 0 },
+    rejected: { seeking: 0, 'not-housing': 0, 'no-text': 0, 'outside-nyc': 0 },
     recordsWithImages: 0, photoUrls: 0, expiredPhotoUrls: 0, fieldsSeen: [],
   };
   let records;
