@@ -157,8 +157,16 @@ do nothing.** Once it is private, each run:
 2. scrapes each enabled source independently, so one blocked source never
    stops the others;
 3. sanitizes the output: emails and phone numbers are removed from listing
-   text, and street addresses are dropped except for business listings;
-4. runs a privacy audit (`scripts/sanitize.js`);
+   text, and street addresses are dropped except for business listings.
+   Personal names are removed only where the text explicitly introduces or
+   addresses someone ("my name is …", "Hi, I'm …,", "DM/contact/email …",
+   "Mr./Ms. …", "my friend/roommate …", "Meet …:", "About …:", a sign-off
+   line), plus that name's later repeats in the same post. Names without
+   such a cue are not detected — the rule never guesses which capitalized
+   words are names, so listing details (places, prices, dates) are kept.
+   Poster names/profile links from Facebook records are never stored at all;
+4. runs a privacy audit (`scripts/sanitize.js`) that fails on any email,
+   phone number, cued name or non-REAL listing left in the output;
 5. only if the audit passes, publishes `listings.json` and `status.json` to
    `live-data` as one force-pushed commit with no history.
 

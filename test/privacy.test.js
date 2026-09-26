@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { sanitizeListing, audit, redact } from '../scripts/sanitize.js';
+import { sanitizeListing, audit, redact, redactNames } from '../scripts/sanitize.js';
 
 const mk = (over) => ({ id: 'roomster:1', source: 'roomster', dataKind: 'REAL', title: 'Room', description: '', contactEmails: [], contactPhones: [], address: null, ...over });
 
@@ -21,4 +21,44 @@ test('audit fails on unsanitized output and on listing text in status.json', () 
   assert.deepEqual(audit(clean, { sources: [] }), []);
   const text = 'A long enough description of a lovely room in Bushwick near the train';
   assert.ok(audit({ listings: [mk({ description: text })] }, { note: text }).includes('status.json contains listing text'));
+});
+
+test('names: removed after explicit cues only, listing facts kept (phrasings from the real Facebook audit)', () => {
+  const R = '[name removed]';
+  assert.equal(redactNames('Hello, my name is Spencer. I am 25 years old'), `Hello, my name is ${R}. I am 25 years old`);
+  assert.equal(redactNames('My name is Jane Doe, and I have a room for $1650/MONTHLY'), `My name is ${R}, and I have a room for $1650/MONTHLY`);
+  assert.equal(redactNames("Hey everyone! I’m Sofia, I’m 24"), `Hey everyone! I’m ${R}, I’m 24`);
+  assert.equal(redactNames("Hi! I'm Fran, 24, a software engineer"), `Hi! I'm ${R}, 24, a software engineer`);
+  assert.equal(redactNames('Yo - I’m Chad and I’m looking for a roommate'), `Yo - I’m ${R} and I’m looking for a roommate`);
+  assert.equal(redactNames("I'm Abby, I'm 25"), `I'm ${R}, I'm 25`);
+  assert.equal(redactNames('DM Sarah for details. Contact John Smith: or text Kim'), `DM ${R} for details. Contact ${R}: or text ${R}`);
+  assert.equal(redactNames('For more information, contact Mr. Robert Pape:'), `For more information, contact Mr. ${R}:`);
+  assert.equal(redactNames('📩 Interested? Email Gaine at [email removed]'), `📩 Interested? Email ${R} at [email removed]`);
+  assert.equal(redactNames('Reach out if interested!\n\nBest,\nMarco'), `Reach out if interested!\n\nBest,\n${R}`);
+  // Not names: no cue, or the cue is followed by an ordinary word.
+  for (const keep of [
+    "Hi everyone, I'm looking for a roommate in Bed-Stuy",
+    "Hey! I'm moving out Oct 1, room is $1,450/mo in Astoria",
+    'Contact me for details. DM for info. Message Us anytime',
+    'Private room in Williamsburg, available 10/1, $1,300/month, no broker fee',
+    "I'm in Bushwick, 5 min to the J",
+    'Studio in East Village — Tompkins Square Park, $2,400',
+  ]) assert.equal(redactNames(keep), keep, keep);
+  // Emails/phones and names together through redact().
+  assert.equal(redact('My name is Sam, text 917-555-0123'), `My name is ${R}, text [phone removed]`);
+});
+
+test('audit fails if a cued name survives sanitizing', () => {
+  const doc = { dataKind: 'REAL', listings: [{ ...mk({ description: 'Hi, my name is Spencer and the room is $1,500' }) }] };
+  assert.ok(audit(doc, {}).some((p) => p.includes('personal name')));
+  assert.deepEqual(audit({ dataKind: 'REAL', listings: [sanitizeListing(doc.listings[0])] }, {}), []);
+});
+
+test('names: third parties introduced in a post, and repeats of a cued name', () => {
+  const R = '[name removed]';
+  assert.equal(redactNames('Join Danielle in this spacious 4-bedroom. Meet Danielle:\n"I am 23"'), `Join ${R} in this spacious 4-bedroom. Meet ${R}:\n"I am 23"`);
+  assert.equal(redactNames('My friend Laurin and I are coming to NYC.\n\nAbout Laurin:\n- communicative'), `My friend ${R} and I are coming to NYC.\n\n${'About'} ${R}:\n- communicative`);
+  assert.equal(redactNames('posting on behalf of my friend Amy. Amy also has two cats. Happy to connect you with Amy'), `posting on behalf of my friend ${R}. ${R} also has two cats. Happy to connect you with ${R}`);
+  assert.equal(redactNames('Join us in Bushwick! Meet the roommates: two nurses. About the apartment: 3BR'), 'Join us in Bushwick! Meet the roommates: two nurses. About the apartment: 3BR');
+  assert.equal(redactNames('I’m from Jamaica, moving to Harlem'), 'I’m from Jamaica, moving to Harlem', 'places after "from" are not names');
 });
