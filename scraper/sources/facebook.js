@@ -228,14 +228,35 @@ export function recordToPost(rec, { groupUrl = null } = {}) {
 const OFFER = /\b(?:rooms? (?:is |are )?(?:available|for rent|open|opening)|private (?:bed)?room|shared room|room for (?:rent|sublet)|(?:bed)?room in (?:a |an |my |our )|roommate (?:replacement|wanted|needed)|replacement roommate|looking for (?:a |an |one |two |\d )?(?:new |3rd |third |2nd |second |4th |fourth )?(?:roommates?|roomies?|housemates?)|lease (?:takeover|transfer|assignment|break)|take over (?:my|our|the) lease|sub-?let|sub-?lease|(?:apartment|apt|unit|studio|home|house) (?:is )?(?:available|for rent)|(?:\d|one|two|three|four)\s*(?:br|bd|bed(?:room)?s?)\b[^.\n]{0,40}\b(?:available|for rent)|renting (?:out )?(?:a |my |our |one |the )?(?:room|bedroom|apartment|apt|studio))\b/i;
 const HOUSING_NOUN = /\b(?:room|bedroom|apartment|apt|studio|\d\s*(?:br|bd)|sublet|sublease|lease)\b/i;
 const MONTHLY_PRICE = /\$\s?\d{1,2},?\d{3}(?:\s*(?:\/|per|a)\s*(?:mo(?:nth)?|m)\b)?/i;
-const SEEKING = /\b(?:looking for|seeking|searching for|in search of|iso|in need of|need(?:ing)?)\s+(?:an?\s+|any\s+)?(?:room|apartment|apt|place|housing|sublet|studio|home|1\s*br|share)\b|\banyone (?:know|have|has) (?:of )?(?:an?\s+|any\s+)?(?:place|room|apartment|apt|sublet|housing|leads?)\b|^\s*iso\b/im;
+// Someone looking FOR housing. Up to three words may sit between the verb and
+// the housing noun ("looking for a furnished 1bd"), but not people words, so
+// "looking for a roommate for my room" stays an offer.
+const PEOPLE_WORD = String.raw`(?!(?:roommates?|roomies?|housemates?|someone|somebody|tenants?|persons?|people|female|male|guy|girl|woman|women|man|men|subletters?|subleasers?)\b)`;
+const SEEKING = new RegExp(String.raw`\b(?:looking for|seeking|searching for|in search of|iso|in need of|need(?:ing)?)\s+(?:an?\s+|any\s+|some\s+)?(?:${PEOPLE_WORD}[\w/-]+\s+){0,3}?(?:rooms?|apartments?|apts?|place|housing|sublet|sublease|studio|home|1\s*(?:br|bd|bed(?:room)?)|share)\b|\banyone (?:know|have|has) (?:of )?(?:an?\s+|any\s+)?(?:place|room|apartment|apt|sublet|housing|leads?)\b|^\s*iso\b`, 'gim');
+
+// Index of the first real seeking phrase, or -1. Ignored: rhetorical
+// questions ("Looking for a place to stay in Manhattan? This studio…") and
+// phrases addressed to the reader ("ideal for anyone looking for a place").
+const ADDRESSED = /\b(?:anyone|those|people|someone|who(?:'s|’s| is| are)?|you(?:'re|’re| are)?)\s+$/i;
+function seekingIndex(t) {
+  for (const m of t.matchAll(SEEKING)) {
+    if (!/^anyone/i.test(m[0])) {
+      const rest = t.slice(m.index);
+      const end = rest.search(/[.!?\n]/);
+      if (end !== -1 && rest[end] === '?') continue;
+      if (ADDRESSED.test(t.slice(Math.max(0, m.index - 30), m.index))) continue;
+    }
+    return m.index;
+  }
+  return -1;
+}
 
 // Returns { housing: boolean, reason } — reasons: seeking | no-text | not-housing | offer.
 export function classifyHousing(text) {
   const t = String(text || '');
   if (!t.trim()) return { housing: false, reason: 'no-text' };
   const offer = t.search(OFFER);
-  const seek = t.search(SEEKING);
+  const seek = seekingIndex(t);
   // Seeking unless an offer phrase comes first ("Room available … looking for someone clean").
   if (seek !== -1 && (offer === -1 || seek < offer)) return { housing: false, reason: 'seeking' };
   if (offer !== -1 && HOUSING_NOUN.test(t)) return { housing: true, reason: 'offer' };

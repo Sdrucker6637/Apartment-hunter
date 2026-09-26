@@ -59,6 +59,18 @@ test('2. seeking / ISO / vague posts are rejected', () => {
     assert.equal(postToListing(recordToPost(rec({ content: t }))).listing, null);
   }
   assert.equal(classifyHousing('Need roommate, anyone interested?').housing, false);
+  // Phrasings found in the first real Bright Data run (2026-09-26), paraphrased:
+  for (const t of ['Hello everyone, looking for a furnished 1bd/studio (no roommates) or a short term sublet!', 'Looking for sublease 10/09 - 11/20, flexible dates', 'URGENT: ISO OCT sublet in a private furnished room']) {
+    assert.equal(classifyHousing(t).reason, 'seeking', t);
+  }
+  for (const t of [
+    'Looking for a comfortable place to stay in Manhattan? This furnished studio is available. Monthly rent: $2,190',
+    'Studio for rent in Hell’s Kitchen, $2,190/month, ideal for anyone looking for a convenient and flexible place to stay.',
+    'Hi! Seeking lease takeover for Nov 1st move in: 1 bedroom studio, $2,075 a month. I need to be out before October 30th.',
+    'Looking for a roommate for my room in Bushwick, $1,200/month',
+  ]) {
+    assert.equal(classifyHousing(t).housing, true, t);
+  }
   assert.equal(classifyHousing('Happy Friday everyone!').reason, 'not-housing');
   assert.equal(classifyHousing('').reason, 'no-text');
 });

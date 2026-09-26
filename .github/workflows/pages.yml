@@ -36,6 +36,19 @@ jobs:
           node-version: 22
       - run: npm test --silent > /dev/null && echo "tests passed"
 
+      # Incremental sources (Facebook) fetch only posts since the last success,
+      # so start from the currently published (already sanitized) data.
+      - name: Restore previous state from the published site
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          url=$(gh api "repos/$GITHUB_REPOSITORY/pages" --jq .html_url 2>/dev/null || true)
+          if [ -n "$url" ] && curl -fsS "${url%/}/data/status.json" -o /tmp/status.json && curl -fsS "${url%/}/data/listings.json" -o /tmp/listings.json; then
+            mkdir -p public/data && cp /tmp/status.json /tmp/listings.json public/data/ && echo "restored previous state"
+          else
+            echo "no previous state"
+          fi
+
       - name: Scrape live sources
         run: node scraper/index.js
         env:

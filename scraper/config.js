@@ -31,7 +31,7 @@ export const config = {
     maxWindowDays: num(process.env.FACEBOOK_MAX_WINDOW_DAYS, 7),
     overlapHours: num(process.env.FACEBOOK_OVERLAP_HOURS, 6),
     minHoursBetweenRuns: num(process.env.FACEBOOK_MIN_HOURS_BETWEEN_RUNS, 6),
-    maxWaitSeconds: num(process.env.FACEBOOK_MAX_WAIT_SECONDS, 600),
+    maxWaitSeconds: num(process.env.FACEBOOK_MAX_WAIT_SECONDS, 1200), // a 7-day window took ~9.6 min on 2026-09-26
     pollSeconds: num(process.env.FACEBOOK_POLL_SECONDS, 15),
     maxRecordsWarn: num(process.env.FACEBOOK_MAX_RECORDS_WARN, 300),
   },

@@ -94,7 +94,7 @@ bills per record):
 | `FACEBOOK_MAX_WINDOW_DAYS` | 7 | Longest date window a run can request |
 | `FACEBOOK_MIN_HOURS_BETWEEN_RUNS` | 6 | Skips collection if the last success was more recent |
 | `FACEBOOK_MAX_GROUPS` | 3 | Most Groups queried per run |
-| `FACEBOOK_MAX_WAIT_SECONDS` | 600 | Gives up after this; a collection is never re-triggered |
+| `FACEBOOK_MAX_WAIT_SECONDS` | 1200 | Gives up after this; a collection is never re-triggered |
 
 Posts are kept only when the text is a housing offer. Seeking, ISO and
 "anyone know a place" posts are rejected. Prices, roommates and move-in dates

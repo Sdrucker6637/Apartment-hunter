@@ -84,11 +84,14 @@ export const SOURCES = [
     notConfiguredReason: 'FACEBOOK_GROUPS is not configured (repository variable: one or more public Facebook Group URLs).',
     run: (cfg, log, ctx) => facebook.fetchListings(cfg, log, ctx),
     review: {
-      checkedAt: CHECKED, technicallyAccessible: 'partial', scrapingTested: false, termsReviewed: true, automatedAccessPermitted: 'unclear',
+      checkedAt: '2026-09-26', technicallyAccessible: 'partial', scrapingTested: true, termsReviewed: true, automatedAccessPermitted: 'unclear',
       robots: 'Not applicable to us: we do not request facebook.com. Bright Data collects the posts; facebook.com/robots.txt disallows all crawling without written permission.',
-      pagesTested: ['Direct (2026-09-25): 7 public NYC housing groups, m./mbasic. group pages and Marketplace all redirect to the login page; Graph API needs an app'],
+      pagesTested: [
+        'Bright Data, 2026-09-26: groups/1225966920763001, 7-day window → 189 real post records (0 error records) in ~9.6 min; 115 recognized as housing offers; 155 posts had image URLs (639 URLs)',
+        'Direct (2026-09-25): 7 public NYC housing groups, m./mbasic. group pages and Marketplace all redirect to the login page; Graph API needs an app',
+      ],
       pagination: 'Date window per run (start_date / end_date); incremental since the last successful run',
-      photos: 'Post images only if Bright Data returns them for group posts — to be confirmed with real output (Facebook CDN links expire)',
+      photos: 'Yes — Bright Data returns post images (attachments / post_image); 104/104 checked images loaded anonymously on 2026-09-26. Facebook CDN links expire (oe=), expired ones are dropped.',
       termsNotes: [
         'Collection provider: Bright Data ("Facebook - Posts by group URL", dataset gd_lz11l67o2cb3r0lkj3). Logged-off, public Groups only; private/members-only Groups return nothing.',
         'Not authorized by Meta. Meta\'s terms require its prior permission for automated collection (logged in or not); in Meta v. Bright Data (N.D. Cal., Jan 2024) the court held Meta\'s then-current terms did not bar Bright Data\'s logged-off collection of public data, and Meta dropped its remaining claims. Meta has since revised its terms.',
