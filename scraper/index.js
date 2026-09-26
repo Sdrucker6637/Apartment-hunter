@@ -158,7 +158,8 @@ export async function run({ offline = false, dryRun = false, log = console.log, 
         st.status = st.lastSuccessAt ? 'LIVE_WITH_LIMITATIONS' : 'UNVERIFIED';
         st.reason = `This run failed (${err.message}); showing listings from the last successful run.`;
       }
-      log(`${src.id}: ${st.status} (run failed)`);
+      // Error messages are short and carry no listing content; long tokens are masked.
+      log(`${src.id}: ${st.status} (run failed: ${String(err.message).replace(/[A-Za-z0-9_-]{32,}/g, '[redacted]').slice(0, 240)})`);
     }
     st.durationMs = Date.now() - started;
   }
