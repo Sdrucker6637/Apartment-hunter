@@ -5,7 +5,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  parseGroups, bdDate, dateWindow, collect, recordToPost, recordPhotos, photoExpiry,
+  parseGroups, bdDate, planCollection, dateWindow, collect, recordToPost, recordPhotos, photoExpiry,
   canonicalPostUrl, classifyHousing, postToListing, fetchListings, DATASET_ID,
 } from '../scraper/sources/facebook.js';
 import { normalizeListing } from '../scraper/schema.js';
@@ -230,26 +230,27 @@ test('Bright Data flow: timeout gives up without re-triggering; 401 → auth err
   await assert.rejects(collect({ apiKey: 'bad', groups: ['https://www.facebook.com/groups/1/'], start: new Date(), end: new Date(), fetchImpl: denied }), { name: 'AuthRequiredError' });
 });
 
-test('incremental window: since last success minus overlap, capped; cost guard skips recent runs', async () => {
+test('incremental window: since last success minus overlap, capped; cooldown never triggers a collection', async () => {
   const now = Date.parse('2026-09-25T12:00:00Z');
   assert.equal(dateWindow({ now }).start.toISOString(), '2026-09-18T12:00:00.000Z');
   assert.equal(dateWindow({ now, lastSuccessAt: '2026-09-25T00:00:00Z', overlapHours: 6 }).start.toISOString(), '2026-09-24T18:00:00.000Z');
   assert.equal(dateWindow({ now, lastSuccessAt: '2026-08-01T00:00:00Z', maxWindowDays: 7 }).start.toISOString(), '2026-09-18T12:00:00.000Z');
-  const cfg = { facebook: { ...config.facebook, apiKey: 'k', groups: ['https://www.facebook.com/groups/1/'], minHoursBetweenRuns: 6 } };
-  const fake = fakeBrightData([]);
-  const out = await fetchListings(cfg, () => {}, { previous: { lastSuccessAt: '2026-09-25T09:00:00Z' }, now, fetchImpl: fake.fn });
-  assert.ok(out.skipped);
-  assert.equal(fake.calls.length, 0, 'no Bright Data request (no records billed)');
+  const cfg = { facebook: { ...config.facebook, apiKey: 'k', groups: ['https://www.facebook.com/groups/1/'], collectionCooldownHours: 36 } };
+  const fake = fakeBrightData([], { snapshots: [] });
+  // Cooldown active, nothing reusable: fails safely without collecting.
+  await assert.rejects(fetchListings(cfg, () => {}, { previous: { lastSuccessAt: '2026-09-25T09:00:00Z' }, now, fetchImpl: fake.fn }), /no reusable snapshot/);
+  assert.equal(fake.calls.filter((c) => c.url.includes('/trigger')).length, 0, 'no collection started');
 });
 
 // Fake Bright Data HTTP API for unit tests.
-function fakeBrightData(records, { runningPolls = 0, building = 0 } = {}) {
+function fakeBrightData(records, { runningPolls = 0, building = 0, snapshots = [], listStatus = 200 } = {}) {
   const calls = [];
   let polls = 0;
   let builds = 0;
   const res = (status, body) => ({ status, ok: status >= 200 && status < 300, json: async () => body, text: async () => JSON.stringify(body) });
   const fn = async (url, init = {}) => {
     calls.push({ url, body: init.body, auth: init.headers?.Authorization });
+    if (url.includes('/snapshots?')) return res(listStatus, listStatus === 200 ? snapshots : {});
     if (url.includes('/trigger')) return res(200, { snapshot_id: 's_fixture' });
     if (url.includes('/progress/')) return res(200, { status: polls++ < runningPolls ? 'running' : 'ready' });
     if (url.includes('/snapshot/')) return builds++ < building ? res(202, { status: 'building' }) : res(200, records);
@@ -351,4 +352,135 @@ test('incremental: a re-retrieved post replaces its carried-over copy; a now-rej
   assert.deepEqual(listings.map((l) => l.id).sort(), ['facebook:keep', 'facebook:updated'], 'not re-read → carried over; re-read and rejected → gone');
   assert.equal(listings.find((l) => l.id === 'facebook:updated').price.share, 1100, 'the new parse wins');
   assert.equal(listings.find((l) => l.id === 'facebook:keep').carriedOver, true);
+});
+
+// ---------- collection cooldown, snapshot reuse, monthly guard ----------
+const T0 = '2026-09-26T18:30:00.000Z'; // last real collection
+const H = 3600000;
+const fbCfg = (over = {}) => ({ facebook: { ...config.facebook, apiKey: 'k', groups: ['https://www.facebook.com/groups/111222333/'], pollSeconds: 0, collectionCooldownHours: 36, monthlyRecordBudget: 5000, monthlySafetyBuffer: 500, ...over } });
+const readySnap = (id = 's_prev', created = T0, size = 189) => ({ id, created, status: 'ready', dataset_size: size });
+
+test('config: collection cooldown defaults to 36h and is one setting', () => {
+  assert.equal(config.facebook.collectionCooldownHours, 36);
+  assert.equal(config.facebook.monthlyRecordBudget, 5000);
+  assert.equal(config.facebook.monthlySafetyBuffer, 500);
+  assert.equal('minHoursBetweenRuns' in config.facebook, false);
+});
+
+test('cooldown active → reuses the last completed snapshot and never calls /trigger', async () => {
+  const fake = fakeBrightData([rec()], { snapshots: [readySnap()] });
+  const previous = { lastSuccessAt: T0, state: { lastCollectedAt: T0, snapshotId: 's_prev', month: '2026-09', monthRecords: 189, lastRecords: 189 } };
+  const out = await fetchListings(fbCfg(), () => {}, { previous, now: Date.parse(T0) + 3 * H, fetchImpl: fake.fn, wait: async () => {} });
+  assert.equal(fake.calls.filter((c) => c.url.includes('/trigger')).length, 0);
+  assert.ok(fake.calls.some((c) => c.url.includes('/snapshot/s_prev')), 'snapshot re-downloaded and parsed');
+  assert.equal(out.length, 1);
+  assert.equal(out.sourceStats.collection.mode, 'reused-snapshot');
+  assert.equal(out.sourceStats.collection.nextCollectionAfter, new Date(Date.parse(T0) + 36 * H).toISOString());
+  assert.equal(out.sourceStats.collectedAt, T0, 'next incremental window still starts from the real collection');
+  assert.equal(out.state.monthRecords, 189, 'reuse adds no records');
+  assert.equal(out.state.lastCollectedAt, T0);
+});
+
+test('cooldown survives lost state: Bright Data\'s own snapshot list is checked', async () => {
+  const fake = fakeBrightData([rec()], { snapshots: [readySnap('s_bd', new Date(Date.parse(T0) + 10 * H).toISOString())] });
+  const out = await fetchListings(fbCfg(), () => {}, { previous: null, now: Date.parse(T0) + 20 * H, fetchImpl: fake.fn, wait: async () => {} });
+  assert.equal(fake.calls.filter((c) => c.url.includes('/trigger')).length, 0);
+  assert.equal(out.sourceStats.snapshotId, 's_bd');
+});
+
+test('cooldown expired → exactly one new collection; state records time, snapshot and measured records', async () => {
+  const fake = fakeBrightData([rec(), rec({ post_id: '2', url: 'https://www.facebook.com/groups/111222333/posts/2/' })], { snapshots: [readySnap()] });
+  const previous = { lastSuccessAt: T0, state: { lastCollectedAt: T0, snapshotId: 's_prev', month: '2026-09', monthRecords: 189, lastRecords: 189, monthCollections: 1 } };
+  const now = Date.parse(T0) + 37 * H;
+  const out = await fetchListings(fbCfg(), () => {}, { previous, now, fetchImpl: fake.fn, wait: async () => {} });
+  const trig = fake.calls.filter((c) => c.url.includes('/trigger'));
+  assert.equal(trig.length, 1);
+  const [input] = JSON.parse(trig[0].body);
+  assert.equal(input.start_date, bdDate(Date.parse(T0) - 6 * H), 'incremental window from last success minus the 6h overlap');
+  assert.equal(out.sourceStats.collection.mode, 'new-collection');
+  assert.equal(out.state.snapshotId, 's_fixture');
+  assert.equal(out.state.lastCollectedAt, new Date(now).toISOString());
+  assert.equal(out.state.monthRecords, 189 + 2, 'counted from the records actually returned');
+  assert.equal(out.state.monthCollections, 2);
+  assert.equal(out.state.lastRecords, 2);
+});
+
+test('first ever run (no state, no snapshots) collects; unknown history with the list unavailable does not', async () => {
+  const fresh = fakeBrightData([rec()], { snapshots: [] });
+  await fetchListings(fbCfg(), () => {}, { previous: null, now: Date.parse(T0), fetchImpl: fresh.fn, wait: async () => {} });
+  assert.equal(fresh.calls.filter((c) => c.url.includes('/trigger')).length, 1);
+  const down = fakeBrightData([rec()], { listStatus: 500 });
+  await assert.rejects(fetchListings(fbCfg(), () => {}, { previous: null, now: Date.parse(T0), fetchImpl: down.fn }), /unknown/);
+  assert.equal(down.calls.filter((c) => c.url.includes('/trigger')).length, 0);
+});
+
+test('list unavailable but saved state says cooldown active → downloads the saved snapshot directly', async () => {
+  const fake = fakeBrightData([rec()], { listStatus: 500 });
+  const previous = { lastSuccessAt: T0, state: { lastCollectedAt: T0, snapshotId: 's_prev', month: '2026-09', monthRecords: 189 } };
+  const out = await fetchListings(fbCfg(), () => {}, { previous, now: Date.parse(T0) + 6 * H, fetchImpl: fake.fn, wait: async () => {} });
+  assert.equal(fake.calls.filter((c) => c.url.includes('/trigger')).length, 0);
+  assert.ok(fake.calls.some((c) => c.url.includes('/snapshot/s_prev')));
+  assert.equal(out.length, 1);
+});
+
+test('monthly record guard: no new collection when counted + expected would pass budget - buffer', () => {
+  const fb = fbCfg().facebook;
+  const snaps = [readySnap()];
+  const now = Date.parse('2026-09-29T12:00:00Z');
+  const near = planCollection({ fb, state: { lastCollectedAt: T0, snapshotId: 's_prev', month: '2026-09', monthRecords: 4400, lastRecords: 189 }, snapshots: snaps, now });
+  assert.equal(near.action, 'reuse');
+  assert.match(near.reason, /monthly record guard/);
+  const ok = planCollection({ fb, state: { lastCollectedAt: T0, month: '2026-09', monthRecords: 4000, lastRecords: 189 }, snapshots: snaps, now });
+  assert.equal(ok.action, 'collect');
+  // A new month resets the count.
+  const oct = planCollection({ fb, state: { lastCollectedAt: T0, month: '2026-09', monthRecords: 4900, lastRecords: 189 }, snapshots: snaps, now: Date.parse('2026-10-02T00:00:00Z') });
+  assert.equal(oct.action, 'collect');
+  assert.equal(oct.monthRecords, 0);
+  // Unmeasured collections (timed out here) count conservatively.
+  const unm = planCollection({ fb, state: { lastCollectedAt: T0, month: '2026-09', monthRecords: 3900, monthUnmeasured: 2, lastRecords: 189 }, snapshots: snaps, now });
+  assert.equal(unm.guardUsed, 3900 + 2 * fb.maxRecordsWarn);
+  assert.equal(unm.action, 'reuse');
+});
+
+test('a collection that times out still starts the cooldown; the next run reuses and counts its snapshot', async () => {
+  const slow = fakeBrightData([], { runningPolls: 1000, snapshots: [readySnap()] });
+  const previous = { lastSuccessAt: T0, state: { lastCollectedAt: T0, snapshotId: 's_prev', month: '2026-09', monthRecords: 189, lastRecords: 189 } };
+  const now = Date.parse(T0) + 40 * H;
+  const err = await fetchListings(fbCfg({ maxWaitSeconds: 0, pollSeconds: 1 }), () => {}, { previous, now, fetchImpl: slow.fn, wait: async () => {} }).catch((e) => e);
+  assert.match(err.message, /not ready/);
+  assert.equal(err.state.pendingSnapshotId, 's_fixture');
+  assert.equal(err.state.lastTriggeredAt, new Date(now).toISOString());
+  assert.equal(err.state.monthUnmeasured, 1);
+  // 3h later: cooldown counts from the trigger; the finished snapshot is reused and measured.
+  const later = fakeBrightData([rec(), rec({ post_id: '9', url: 'https://www.facebook.com/groups/111222333/posts/9/' })], { snapshots: [readySnap(), readySnap('s_fixture', new Date(now + H).toISOString(), 2)] });
+  const out = await fetchListings(fbCfg(), () => {}, { previous: { lastSuccessAt: T0, state: err.state }, now: now + 3 * H, fetchImpl: later.fn, wait: async () => {} });
+  assert.equal(later.calls.filter((c) => c.url.includes('/trigger')).length, 0);
+  assert.equal(out.sourceStats.snapshotId, 's_fixture');
+  assert.equal(out.state.pendingSnapshotId, null);
+  assert.equal(out.state.monthRecords, 189 + 2);
+  assert.equal(out.state.monthUnmeasured, 0);
+});
+
+test('pipeline: a failed Facebook run keeps earlier listings AND its cooldown state; a success replaces the state', async () => {
+  const prevListing = normalizeListing({ source: 'facebook', sourceId: 'p1', sourceLabel: 'Facebook', originalUrl: 'https://www.facebook.com/groups/1/posts/p1/', title: 'Room', postedAt: new Date().toISOString(), price: { monthly: 1000, type: 'room_share', basis: 'explicit' } });
+  const state = { lastCollectedAt: T0, snapshotId: 's_prev', month: '2026-09', monthRecords: 189 };
+  const failing = { id: 'facebook', name: 'Facebook', enabledByDefault: true, incremental: true, run: async () => { const e = new Error('Bright Data snapshot download failed (HTTP 500)'); throw e; } };
+  const { writeFile: wf, mkdir: md, readFile: rf, rm } = await import('node:fs/promises');
+  const statusPath = new URL('../public/data/status.json', import.meta.url);
+  const saved = await rf(statusPath, 'utf8').catch(() => null);
+  await md(new URL('../public/data/', import.meta.url), { recursive: true });
+  await wf(statusPath, JSON.stringify({ sources: [{ id: 'facebook', status: 'LIVE', lastSuccessAt: T0, state }] }));
+  try {
+    const { listings, status } = await run({ sources: [failing], dryRun: true, log: () => {}, previousListings: [prevListing] });
+    assert.deepEqual(listings.map((l) => l.id), ['facebook:p1'], 'earlier Facebook listings kept');
+    const fb = status.sources[0];
+    assert.deepEqual(fb.state, state, 'cooldown state survives the failure');
+    assert.equal(fb.status, 'LIVE_WITH_LIMITATIONS');
+    assert.match(fb.failureReason, /HTTP 500/);
+    const ok = { ...failing, run: async () => Object.assign([], { sourceStats: { provider: 'Bright Data', groups: ['g'], recordsRetrieved: 0, errorRecords: 0, housingListings: 0, rejected: {}, recordsWithImages: 0 }, state: { ...state, snapshotId: 's_new' } }) };
+    const r2 = await run({ sources: [ok], dryRun: true, log: () => {}, previousListings: [prevListing] });
+    assert.equal(r2.status.sources[0].state.snapshotId, 's_new');
+  } finally {
+    if (saved == null) await rm(statusPath, { force: true }); else await wf(statusPath, saved);
+  }
 });

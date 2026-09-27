@@ -90,6 +90,9 @@ export async function run({ offline = false, dryRun = false, log = console.log, 
       lastSuccessAt: prev?.lastSuccessAt ?? null,
       lastFailureAt: prev?.lastFailureAt ?? null,
       failureReason: prev?.failureReason ?? null,
+      // Source-specific refresh state (e.g. Facebook's collection cooldown and
+      // monthly record count). Kept across runs, including failed ones.
+      state: prev?.state ?? null,
       nextStep: src.nextStep || null,
     };
     statuses.push(st);
@@ -119,6 +122,7 @@ export async function run({ offline = false, dryRun = false, log = console.log, 
     try {
       const partials = await src.run(config, (m) => { notes.push(m); log(m); }, { previous: prev || null, now });
       if (partials.sourceStats) st.sourceStats = partials.sourceStats;
+      if (partials.state) st.state = partials.state;
       if (partials.auditPosts) auditPosts.push(...partials.auditPosts);
       if (partials.retrievedIds) for (const id of partials.retrievedIds) reRetrieved.add(id);
       if (partials.skipped) {
@@ -153,6 +157,7 @@ export async function run({ offline = false, dryRun = false, log = console.log, 
         st.reason = limits.join('; ');
       }
     } catch (err) {
+      if (err.state) st.state = err.state;
       st.status = classifyError(err);
       st.reason = err.message;
       st.lastFailureAt = scrapedAt;

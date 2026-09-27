@@ -1,31 +1,30 @@
-name: Scrape listings
+name: Scrape listings (manual verification only)
 
-# Every 3 hours, plus manual runs.
+# MANUAL ONLY — not a production pipeline. The live site is refreshed and
+# published by .github/workflows/pages.yml (every 3 hours); this workflow no
+# longer has a schedule or a publish path, so the two can never compete.
 #
 # PRIVACY GUARD: scraped listings contain posters' personal details. The
-# first step checks the repository's visibility; while it is PUBLIC, scheduled
-# runs stop immediately and nothing is fetched or published.
+# first step checks the repository's visibility; anything other than
+# mode=verify is refused while the repository is public.
 #
-# mode=publish (scheduled default): restore the previous run's data from
-#   `live-data` (so sources that fail keep their last listings and their
-#   last-success/last-failure history), scrape every enabled source
-#   independently, sanitize + privacy-audit the output (scripts/sanitize.js),
-#   and only if the audit passes commit it to `live-data` (a single commit,
-#   force-pushed). Private repos only.
-# mode=verify (manual): scrape (+ optional screenshots), then push results
-#   ENCRYPTED with .github/verify-pubkey.pem to `verify-output`.
+# mode=verify: scrape (+ optional screenshots), then push results ENCRYPTED
+#   with .github/verify-pubkey.pem to `verify-output` (for private audits).
+#   Facebook follows the same collection cooldown as production (it re-uses
+#   the newest completed Bright Data snapshot while the cooldown runs), unless
+#   facebook_snapshot names a snapshot.
 #
 # Logs contain counts and statuses only — never listing text, contacts,
 # names or HTML. See scraper/index.js (logSummary).
 on:
-  schedule:
-    - cron: '23 */3 * * *'
   workflow_dispatch:
     inputs:
       mode:
-        description: 'publish or verify'
+        description: 'verify (the only mode; production publishing is pages.yml)'
         required: true
-        default: publish
+        default: verify
+        type: choice
+        options: [verify]
       screenshots:
         description: 'verify mode: render the site and screenshot it (true/false)'
         required: false
@@ -47,7 +46,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      MODE: ${{ inputs.mode || 'publish' }}
+      MODE: ${{ inputs.mode || 'verify' }}
     steps:
       - name: Privacy guard (repository must be private to publish)
         id: guard
@@ -72,18 +71,6 @@ jobs:
       - run: npm test --silent > /dev/null && echo "tests passed"
         if: steps.guard.outputs.skip != 'true'
 
-      - name: Restore previous run state (publish mode)
-        if: steps.guard.outputs.skip != 'true' && env.MODE == 'publish' && steps.guard.outputs.private == 'true'
-        run: |
-          if git fetch -q origin live-data 2>/dev/null; then
-            mkdir -p public/data
-            git show origin/live-data:listings.json > public/data/listings.json 2>/dev/null || true
-            git show origin/live-data:status.json > public/data/status.json 2>/dev/null || true
-            echo "restored previous state"
-          else
-            echo "no previous state"
-          fi
-
       - name: Scrape live sources
         if: steps.guard.outputs.skip != 'true'
         run: |
@@ -97,23 +84,11 @@ jobs:
           BRIGHTDATA_API_KEY: ${{ secrets.BRIGHTDATA_API_KEY }}
           FACEBOOK_GROUPS: ${{ vars.FACEBOOK_GROUPS }}
           FACEBOOK_REUSE_SNAPSHOT: ${{ inputs.facebook_snapshot }}
+          FACEBOOK_COLLECTION_COOLDOWN_HOURS: ${{ vars.FACEBOOK_COLLECTION_COOLDOWN_HOURS }}
+          FACEBOOK_MONTHLY_RECORD_BUDGET: ${{ vars.FACEBOOK_MONTHLY_RECORD_BUDGET }}
+          FACEBOOK_MONTHLY_SAFETY_BUFFER: ${{ vars.FACEBOOK_MONTHLY_SAFETY_BUFFER }}
           ENABLE_SOURCES: ${{ vars.ENABLE_SOURCES }}
           MAX_SHARE: ${{ vars.MAX_SHARE }}
-
-      - name: Publish data to live-data branch (private repos only)
-        if: steps.guard.outputs.skip != 'true' && env.MODE == 'publish' && steps.guard.outputs.private == 'true'
-        run: |
-          set -euo pipefail
-          node scripts/sanitize.js public/data /tmp/out
-          git config user.name "apartment-hunter-bot"
-          git config user.email "apartment-hunter-bot@users.noreply.github.com"
-          git checkout -q --orphan live-data
-          git rm -rqf --cached .
-          cp /tmp/out/*.json .
-          git add -f listings.json status.json
-          git commit -qm "Live data $(date -u +%FT%TZ)"
-          git push -qf origin live-data
-          echo "published live data"
 
       - name: Screenshot the site with real data
         if: steps.guard.outputs.skip != 'true' && env.MODE == 'verify' && inputs.screenshots == 'true'

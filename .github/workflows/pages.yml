@@ -1,27 +1,40 @@
 name: Publish site (GitHub Pages)
 
-# Click "Run workflow" to scrape the live sources and publish the site with
-# REAL, SANITIZED listings to GitHub Pages.
+# THE production pipeline: the only workflow that refreshes and publishes the
+# live site. Runs every 3 hours (plus manual runs):
 #
-# - Sanitized by scripts/sanitize.js before publishing: emails and phone
-#   numbers are removed from listing text, extracted contact lists are
-#   emptied, and posters' street addresses are dropped (business addresses
-#   like June Homes buildings are kept). If the privacy audit fails, nothing
-#   is published.
-# - No scraped data is committed to the repository; the site is deployed as
-#   a Pages artifact. The log contains counts and statuses only.
-# - A GitHub Pages site is public to anyone with its link.
+#   1. restore the currently published data/status.json + listings.json from
+#      the live site (they carry each source's last listings and refresh state)
+#   2. scrape: every enabled source follows its own policy. Roomster is
+#      fetched each run. Facebook starts a NEW Bright Data collection only when
+#      its cooldown (FACEBOOK_COLLECTION_COOLDOWN_HOURS, default 36 — see
+#      scraper/config.js) has passed and the monthly record guard allows it;
+#      otherwise it re-uses the newest completed snapshot (no collection).
+#      A source that fails keeps its previously published listings.
+#   3. sanitize + privacy-audit (scripts/sanitize.js), then a publish guard
+#      (scripts/publish-guard.js): if either fails, nothing is deployed and
+#      the current site stays up.
+#   4. deploy the sanitized artifact to GitHub Pages.
+#
+# No scraped data is committed to the repository; the site is deployed as a
+# Pages artifact, and the state needed between runs lives in the published
+# status.json (counts, timestamps and snapshot ids only). The log contains
+# counts and statuses only. A GitHub Pages site is public to anyone with its link.
 #
 # One-time setup: Settings → Pages → Build and deployment → Source: "GitHub Actions".
+# Optional repository variables: FACEBOOK_COLLECTION_COOLDOWN_HOURS,
+# FACEBOOK_MONTHLY_RECORD_BUDGET, FACEBOOK_MONTHLY_SAFETY_BUFFER (blank = defaults).
 on:
+  schedule:
+    - cron: '23 */3 * * *'
   workflow_dispatch:
     inputs:
       facebook_snapshot:
-        description: 'Facebook: reuse an existing Bright Data snapshot ("latest" or an id) instead of collecting; blank = normal'
+        description: 'Facebook: reuse a specific Bright Data snapshot ("latest" or an id) instead of the automatic plan; blank = automatic (cooldown)'
         required: false
         default: ''
       data:
-        description: 'refresh = scrape the sources; keep = republish the currently published data unchanged (site/UI-only deploy, no scraping)'
+        description: 'refresh = normal production refresh; keep = republish the currently published data unchanged (site/UI-only deploy, no scraping)'
         required: false
         default: 'refresh'
 
@@ -37,7 +50,9 @@ concurrency:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 40
+    env:
+      DATA_MODE: ${{ inputs.data || 'refresh' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -45,21 +60,37 @@ jobs:
           node-version: 22
       - run: npm test --silent > /dev/null && echo "tests passed"
 
-      # Incremental sources (Facebook) fetch only posts since the last success,
-      # so start from the currently published (already sanitized) data.
+      # The published data is the pipeline's memory. If the site exists but its
+      # data can't be fetched, stop: starting from nothing would drop earlier
+      # listings and Facebook's cooldown state.
       - name: Restore previous state from the published site
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           url=$(gh api "repos/$GITHUB_REPOSITORY/pages" --jq .html_url 2>/dev/null || true)
-          if [ -n "$url" ] && curl -fsS "${url%/}/data/status.json" -o /tmp/status.json && curl -fsS "${url%/}/data/listings.json" -o /tmp/listings.json; then
-            mkdir -p public/data && cp /tmp/status.json /tmp/listings.json public/data/ && echo "restored previous state"
-          else
-            echo "no previous state"
+          mkdir -p "$RUNNER_TEMP/prev"
+          if [ -z "$url" ]; then
+            echo "no Pages site yet: starting without previous state"
+            echo "PREV_DIR=-" >> "$GITHUB_ENV"
+            exit 0
           fi
+          for f in status.json listings.json; do
+            curl -fsS --retry 4 --retry-delay 10 --retry-all-errors "${url%/}/data/$f?t=$(date +%s)" -o "$RUNNER_TEMP/prev/$f" \
+              || { echo "::error::could not restore data/$f from the live site; not refreshing"; exit 1; }
+          done
+          node -e '
+            const d = require(process.argv[1] + "/listings.json"), s = require(process.argv[1] + "/status.json");
+            if (!Array.isArray(d.listings) || d.dataKind !== "REAL") { console.log("restored data is not valid REAL data"); process.exit(1); }
+            const fb = (s.sources || []).find((x) => x.id === "facebook");
+            console.log(`restored previous state: ${d.listings.length} listings · generated ${s.generatedAt} · facebook last success ${fb?.lastSuccessAt || "—"} · facebook state ${fb?.state ? "present" : "none"}`);
+          ' "$RUNNER_TEMP/prev"
+          mkdir -p public/data
+          cp "$RUNNER_TEMP/prev/status.json" "$RUNNER_TEMP/prev/listings.json" public/data/
+          echo "PREV_DIR=$RUNNER_TEMP/prev" >> "$GITHUB_ENV"
 
       - name: Scrape live sources
-        if: inputs.data != 'keep'
+        if: env.DATA_MODE != 'keep'
         run: node scraper/index.js
         env:
           REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
@@ -69,11 +100,14 @@ jobs:
           BRIGHTDATA_API_KEY: ${{ secrets.BRIGHTDATA_API_KEY }}
           FACEBOOK_GROUPS: ${{ vars.FACEBOOK_GROUPS }}
           FACEBOOK_REUSE_SNAPSHOT: ${{ inputs.facebook_snapshot }}
+          FACEBOOK_COLLECTION_COOLDOWN_HOURS: ${{ vars.FACEBOOK_COLLECTION_COOLDOWN_HOURS }}
+          FACEBOOK_MONTHLY_RECORD_BUDGET: ${{ vars.FACEBOOK_MONTHLY_RECORD_BUDGET }}
+          FACEBOOK_MONTHLY_SAFETY_BUFFER: ${{ vars.FACEBOOK_MONTHLY_SAFETY_BUFFER }}
           ENABLE_SOURCES: ${{ vars.ENABLE_SOURCES }}
           MAX_SHARE: ${{ vars.MAX_SHARE }}
 
       - name: Keep the published data (no scraping)
-        if: inputs.data == 'keep'
+        if: env.DATA_MODE == 'keep'
         run: test -f public/data/listings.json && test -f public/data/status.json && echo "republishing the currently published data"
 
       - name: Sanitize, privacy-audit and assemble the site
@@ -83,6 +117,9 @@ jobs:
           cp public/index.html public/app.js public/styles.css _site/
           node scripts/sanitize.js public/data _site/data
           touch _site/.nojekyll
+
+      - name: Publish guard (never replace a good site with broken data)
+        run: node scripts/publish-guard.js "$PREV_DIR" _site/data "$DATA_MODE"
 
       - uses: actions/upload-pages-artifact@v3
         with:

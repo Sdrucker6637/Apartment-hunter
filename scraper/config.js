@@ -30,7 +30,13 @@ export const config = {
     initialWindowDays: num(process.env.FACEBOOK_INITIAL_WINDOW_DAYS, 7),
     maxWindowDays: num(process.env.FACEBOOK_MAX_WINDOW_DAYS, 7),
     overlapHours: num(process.env.FACEBOOK_OVERLAP_HOURS, 6),
-    minHoursBetweenRuns: num(process.env.FACEBOOK_MIN_HOURS_BETWEEN_RUNS, 6),
+    // A NEW Bright Data collection at most this often; runs in between re-use
+    // the newest completed snapshot (see planCollection in sources/facebook.js).
+    collectionCooldownHours: num(process.env.FACEBOOK_COLLECTION_COOLDOWN_HOURS, 36),
+    // Guard (not billing): don't start a collection that would push the records
+    // counted this month past budget - buffer. 0 disables the guard.
+    monthlyRecordBudget: num(process.env.FACEBOOK_MONTHLY_RECORD_BUDGET, 5000),
+    monthlySafetyBuffer: num(process.env.FACEBOOK_MONTHLY_SAFETY_BUFFER, 500),
     maxWaitSeconds: num(process.env.FACEBOOK_MAX_WAIT_SECONDS, 1200), // a 7-day window took ~9.6 min on 2026-09-26
     pollSeconds: num(process.env.FACEBOOK_POLL_SECONDS, 15),
     maxRecordsWarn: num(process.env.FACEBOOK_MAX_RECORDS_WARN, 300),

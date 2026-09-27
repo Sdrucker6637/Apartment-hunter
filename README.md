@@ -85,16 +85,32 @@ BRIGHTDATA_API_KEY=… FACEBOOK_GROUPS='["https://www.facebook.com/groups/<group
 
 In GitHub, add `BRIGHTDATA_API_KEY` as a repository **secret** and
 `FACEBOOK_GROUPS` as a repository **variable** (Settings → Secrets and
-variables → Actions). Each run asks Bright Data only for posts since the last
-successful run, minus a 6-hour overlap. A few settings cap cost (Bright Data
-bills per record):
+variables → Actions). A new collection asks Bright Data only for posts since
+the last successful one, minus a 6-hour overlap. The site refreshes every 3
+hours, but a **new** Bright Data collection starts only when the collection
+cooldown has passed; runs in between re-download and re-parse the newest
+completed snapshot (no new collection). The cooldown state (last collection
+time, snapshot id, records counted this month) is saved in the published
+`status.json` and restored every run; Bright Data's own list of ready
+snapshots is checked too, so losing that state can't cause an extra
+collection. If the last collection time can't be determined, nothing is
+collected. Settings that cap cost (Bright Data bills per record; all optional
+repository variables, blank = default):
 
 | Setting | Default | What it does |
 | --- | --- | --- |
 | `FACEBOOK_MAX_WINDOW_DAYS` | 7 | Longest date window a run can request |
-| `FACEBOOK_MIN_HOURS_BETWEEN_RUNS` | 6 | Skips collection if the last success was more recent |
+| `FACEBOOK_COLLECTION_COOLDOWN_HOURS` | 36 | Minimum time between NEW collections; runs in between reuse the newest snapshot |
+| `FACEBOOK_MONTHLY_RECORD_BUDGET` | 5000 | Monthly record guard (0 = off) |
+| `FACEBOOK_MONTHLY_SAFETY_BUFFER` | 500 | No new collection if counted + expected records would pass budget − buffer |
 | `FACEBOOK_MAX_GROUPS` | 3 | Most Groups queried per run |
-| `FACEBOOK_MAX_WAIT_SECONDS` | 1200 | Gives up after this; a collection is never re-triggered |
+| `FACEBOOK_MAX_WAIT_SECONDS` | 1200 | Gives up after this; a collection is never re-triggered, and one that times out still starts the cooldown |
+
+The monthly guard counts the records that this pipeline's collections actually
+returned (a collection that timed out is counted as 300 until its snapshot is
+downloaded). It doesn't see collections started elsewhere (the Bright Data
+dashboard, manual verify runs that collected) and isn't Bright Data's billing
+figure, so treat it as a safety net, not an exact meter.
 
 Posts are kept only when the text is a housing offer. Seeking, ISO and
 "anyone know a place" posts are rejected. Prices, roommates and move-in dates
@@ -148,14 +164,17 @@ images. The pipeline drops photos that don't load anonymously. In the browser,
 a photo that fails to load is replaced with a drawn placeholder that says so.
 It's never a stock photo.
 
-## Privacy and the scheduled scraper
+## Production refresh (GitHub Pages)
 
-`.github/workflows/scrape.yml` runs every 3 hours, but its first step checks
-whether the repository is private. **While the repo is public, scheduled runs
-do nothing.** Once it is private, each run:
-1. restores the previous run's data from the `live-data` branch;
-2. scrapes each enabled source independently, so one blocked source never
-   stops the others;
+`.github/workflows/pages.yml` is the only production pipeline. It runs every 3
+hours (`23 */3 * * *`) and on demand, and each run:
+1. restores the currently published `data/status.json` and
+   `data/listings.json` from the live site. If the site exists but they can't
+   be fetched, the run stops rather than starting from nothing;
+2. scrapes each enabled source independently, following its own policy
+   (Roomster every run; Facebook per the cooldown above). A source that fails
+   keeps its previously published listings and records the failure in
+   `status.json`;
 3. sanitizes the output: emails and phone numbers are removed from listing
    text, and street addresses are dropped except for business listings.
    Personal names are removed only where the text explicitly introduces or
@@ -166,9 +185,21 @@ do nothing.** Once it is private, each run:
    words are names, so listing details (places, prices, dates) are kept.
    Poster names/profile links from Facebook records are never stored at all;
 4. runs a privacy audit (`scripts/sanitize.js`) that fails on any email,
-   phone number, cued name or non-REAL listing left in the output;
-5. only if the audit passes, publishes `listings.json` and `status.json` to
-   `live-data` as one force-pushed commit with no history.
+   phone number, cued name or non-REAL listing left in the output, then a
+   publish guard (`scripts/publish-guard.js`) that fails on empty or stale
+   data;
+5. only if both pass, deploys the sanitized site as a Pages artifact. On any
+   failure nothing is deployed and the current site stays up.
+
+No scraped data is committed to the repository. Manual inputs:
+`data: keep` redeploys the site with the currently published data (no
+scraping); `facebook_snapshot` forces a specific Bright Data snapshot.
+
+`.github/workflows/scrape.yml` is manual verification only (no schedule, no
+publishing): **Run workflow → mode: verify** scrapes, encrypts the results on
+the runner and pushes only ciphertext to the `verify-output` branch. The
+private key isn't in the repo. Its privacy guard refuses anything else while
+the repository is public.
 
 Workflow logs contain counts and statuses only, never listing text, names,
 phone numbers, emails or HTML:
@@ -180,10 +211,8 @@ Total: 103 listings · photos 103/103 · …
 Errors: 0
 ```
 
-For testing while public, **Run workflow → mode: verify** encrypts the results
-on the runner and pushes only ciphertext to the `verify-output` branch. The
-private key isn't in the repo. The feasibility probes in `probe.yml` refuse
-to run any stage that prints listing content on a public repo.
+The feasibility probes in `probe.yml` refuse to run any stage that prints
+listing content on a public repo.
 
 Or run `npm run scrape` on your own machine and open `public/data/status.json`.
 

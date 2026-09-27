@@ -123,7 +123,17 @@ export async function collect({ apiKey, groups, start, end, maxWaitSeconds = 600
   const { snapshot_id: snapshotId } = await trig.json();
   if (!snapshotId) throw new Error('Bright Data trigger returned no snapshot_id');
   log(`facebook: Bright Data collection started for ${groups.length} group(s)`);
+  try {
+    return { snapshotId, records: await waitAndDownload({ apiKey, snapshotId, maxWaitSeconds, pollSeconds, fetchImpl, wait }) };
+  } catch (err) {
+    // The collection was accepted (and may still finish and be billed): the
+    // caller records it so the cooldown applies and the snapshot can be reused.
+    err.triggeredSnapshotId = snapshotId;
+    throw err;
+  }
+}
 
+async function waitAndDownload({ apiKey, snapshotId, maxWaitSeconds, pollSeconds, fetchImpl, wait }) {
   const deadline = Date.now() + maxWaitSeconds * 1000;
   // Wait for the snapshot. One collection per run; never re-triggered.
   for (;;) {
@@ -137,8 +147,7 @@ export async function collect({ apiKey, groups, start, end, maxWaitSeconds = 600
     }
     await wait(pollSeconds * 1000);
   }
-  const records = await downloadSnapshot({ apiKey, snapshotId, deadline, pollSeconds, fetchImpl, wait });
-  return { snapshotId, records };
+  return downloadSnapshot({ apiKey, snapshotId, deadline, pollSeconds, fetchImpl, wait });
 }
 
 async function downloadSnapshot({ apiKey, snapshotId, deadline, pollSeconds, fetchImpl, wait }) {
@@ -158,21 +167,29 @@ async function downloadSnapshot({ apiKey, snapshotId, deadline, pollSeconds, fet
 // Re-download a snapshot Bright Data already collected (kept 16 days)
 // instead of starting a new collection — no new records are collected.
 // `which` is a snapshot id or "latest" (newest ready snapshot of this dataset).
-export async function reuseSnapshot({ apiKey, which, maxWaitSeconds = 600, pollSeconds = 15, fetchImpl = fetch, wait = sleep, log = () => {} }) {
-  let snapshotId = which;
-  let created = null;
+// Ready snapshots of this dataset (read-only; starts nothing, collects nothing).
+export async function listSnapshots({ apiKey, fetchImpl = fetch }) {
   const res = await bdFetch(fetchImpl, `${API}/snapshots?dataset_id=${DATASET_ID}&status=ready`, apiKey);
   if (!res.ok) throw new Error(`Bright Data snapshot list failed (HTTP ${res.status}) ${await errorText(res)}`);
   const body = await res.json();
-  const list = (Array.isArray(body) ? body : body.snapshots || body.data || [])
+  return (Array.isArray(body) ? body : body.snapshots || body.data || [])
     .map((x) => ({ id: x.id || x.snapshot_id, created: x.created || x.created_at || null, size: x.dataset_size ?? null, status: x.status }))
     .filter((x) => x.id && (!x.status || x.status === 'ready'));
-  const chosen = which === 'latest'
-    ? list.filter((x) => x.size !== 0).sort((a, b) => Date.parse(b.created || 0) - Date.parse(a.created || 0))[0]
-    : list.find((x) => x.id === which);
+}
+const newest = (list) => (list || []).filter((x) => x.size !== 0).sort((a, b) => Date.parse(b.created || 0) - Date.parse(a.created || 0))[0] || null;
+
+// `list`: an already-fetched snapshot list (saves a request); `direct`: download
+// the given id without listing (used when the list endpoint is unavailable).
+export async function reuseSnapshot({ apiKey, which, list = null, direct = false, maxWaitSeconds = 600, pollSeconds = 15, fetchImpl = fetch, wait = sleep, log = () => {} }) {
+  let chosen;
+  if (direct && which !== 'latest') chosen = { id: which, created: null };
+  else {
+    list ??= await listSnapshots({ apiKey, fetchImpl });
+    chosen = which === 'latest' ? newest(list) : list.find((x) => x.id === which);
+  }
   if (!chosen) throw new Error(`No reusable ready Bright Data snapshot (${which === 'latest' ? 'none listed' : 'id not found'}); no collection was started`);
-  snapshotId = chosen.id;
-  created = chosen.created;
+  const snapshotId = chosen.id;
+  const created = chosen.created;
   log(`facebook: reusing an existing Bright Data snapshot (created ${created || 'unknown'}); no new collection`);
   const records = await downloadSnapshot({ apiKey, snapshotId, deadline: Date.now() + maxWaitSeconds * 1000, pollSeconds, fetchImpl, wait });
   return { snapshotId, created, records };
@@ -405,6 +422,53 @@ export function postToListing(post) {
   };
 }
 
+// ---------- collection cooldown & monthly guard ----------
+//
+// The site refreshes every few hours, but a NEW Bright Data collection is only
+// started once the cooldown (FACEBOOK_COLLECTION_COOLDOWN_HOURS, default 36)
+// has passed since the last one. In between, the newest completed snapshot is
+// re-downloaded and re-parsed (no new collection). Persistent state lives in
+// the source's `state` in status.json (restored from the published site each
+// run); Bright Data's own list of ready snapshots is a second source of truth,
+// so a lost state can't cause an extra collection.
+//
+// Monthly guard: records are counted from what the snapshots actually return
+// (records.length) for collections this pipeline started. A collection whose
+// size is unknown (it timed out here) counts as `maxRecordsWarn` records until
+// its snapshot is downloaded. This is a guard, not billing: collections made
+// elsewhere (other workflows, the Bright Data UI) are not seen.
+export const monthKey = (t) => new Date(t).toISOString().slice(0, 7);
+
+export function planCollection({ fb, state = null, lastSuccessAt = null, snapshots = null, now = Date.now() }) {
+  const st = state || {};
+  const latest = newest(snapshots);
+  const times = [st.lastCollectedAt, st.lastTriggeredAt, lastSuccessAt, latest?.created].map((t) => Date.parse(t)).filter(Number.isFinite);
+  const last = times.length ? Math.max(...times) : null;
+  const nextCollectionAfter = last != null ? new Date(last + fb.collectionCooldownHours * 3600000).toISOString() : null;
+  const month = monthKey(now);
+  const sameMonth = st.month === month;
+  const monthRecords = sameMonth ? st.monthRecords || 0 : 0;
+  const monthUnmeasured = sameMonth ? st.monthUnmeasured || 0 : 0;
+  const guardUsed = monthRecords + monthUnmeasured * fb.maxRecordsWarn;
+  const expected = st.lastRecords ?? fb.maxRecordsWarn;
+  const guardLimit = fb.monthlyRecordBudget - fb.monthlySafetyBuffer;
+  const base = { nextCollectionAfter, month, monthRecords, monthUnmeasured, guardUsed, guardLimit };
+  // Which snapshot to reuse: one we started that has since finished, then the
+  // one we last used, then the newest ready one.
+  const listed = (id) => id && snapshots?.some((x) => x.id === id);
+  const reuseId = listed(st.pendingSnapshotId) ? st.pendingSnapshotId
+    : listed(st.snapshotId) ? st.snapshotId
+      : latest?.id || (!snapshots && st.snapshotId) || null;
+  const reuse = (reason) => (reuseId
+    ? { ...base, action: 'reuse', snapshotId: reuseId, direct: !snapshots, reason }
+    : { ...base, action: 'none', reason: `${reason}; no reusable snapshot, so nothing was collected (earlier listings are kept)` });
+
+  if (last == null && !snapshots) return { ...base, action: 'none', reason: 'the last collection time is unknown (no saved state and the Bright Data snapshot list is unavailable); not collecting to be safe' };
+  if (last != null && now < last + fb.collectionCooldownHours * 3600000) return reuse(`collection cooldown (${fb.collectionCooldownHours}h) runs until ${nextCollectionAfter}`);
+  if (fb.monthlyRecordBudget > 0 && guardUsed + expected > guardLimit) return reuse(`monthly record guard: ${guardUsed} counted + ~${expected} expected would exceed ${guardLimit} (${fb.monthlyRecordBudget} budget - ${fb.monthlySafetyBuffer} buffer)`);
+  return { ...base, action: 'collect', reason: last == null ? 'no earlier collection found' : `cooldown passed (last collection ${new Date(last).toISOString()})` };
+}
+
 // ---------- adapter entry point ----------
 
 export async function fetchListings(cfg, log = () => {}, { previous = null, now = Date.now(), fetchImpl = fetch, wait = sleep } = {}) {
@@ -413,11 +477,17 @@ export async function fetchListings(cfg, log = () => {}, { previous = null, now 
   const groups = fb.groups.slice(0, fb.maxGroups);
   if (!groups.length) throw new Error('FACEBOOK_GROUPS is not configured');
 
-  // Cost guard: don't collect again within minHoursBetweenRuns of the last success.
-  if (!fb.reuseSnapshot && previous?.lastSuccessAt && now - Date.parse(previous.lastSuccessAt) < fb.minHoursBetweenRuns * 3600000) {
-    const out = [];
-    out.skipped = `Skipped: last successful collection was under ${fb.minHoursBetweenRuns}h ago (cost guard); earlier posts are kept.`;
-    return out;
+  const prevState = previous?.state || null;
+  let plan = null;
+  let snapshots = null;
+  if (!fb.reuseSnapshot) {
+    try { snapshots = await listSnapshots({ apiKey: fb.apiKey, fetchImpl }); } catch (err) {
+      if (err instanceof AuthRequiredError) throw err;
+      log(`facebook: snapshot list unavailable (${String(err.message).slice(0, 120)})`);
+    }
+    plan = planCollection({ fb, state: prevState, lastSuccessAt: previous?.lastSuccessAt, snapshots, now });
+    log(`facebook: plan=${plan.action} · ${plan.reason} · month ${plan.month}: ${plan.monthRecords} records counted${plan.monthUnmeasured ? ` + ${plan.monthUnmeasured} unmeasured collection(s)` : ''}`);
+    if (plan.action === 'none') throw new Error(`No Facebook refresh this run: ${plan.reason}`);
   }
 
   const { start, end } = dateWindow({ now, lastSuccessAt: previous?.lastSuccessAt, initialWindowDays: fb.initialWindowDays, maxWindowDays: fb.maxWindowDays, overlapHours: fb.overlapHours });
@@ -429,14 +499,48 @@ export async function fetchListings(cfg, log = () => {}, { previous = null, now 
     recordsWithImages: 0, photoUrls: 0, expiredPhotoUrls: 0, fieldsSeen: [],
   };
   let records;
-  if (fb.reuseSnapshot) {
-    const r = await reuseSnapshot({ apiKey: fb.apiKey, which: fb.reuseSnapshot, maxWaitSeconds: fb.maxWaitSeconds, pollSeconds: fb.pollSeconds, fetchImpl, wait, log });
+  const month = monthKey(now);
+  const carried = prevState && prevState.month === month ? prevState : { ...(prevState || {}), month, monthRecords: 0, monthUnmeasured: 0, monthCollections: 0 };
+  let state;
+  if (fb.reuseSnapshot || plan.action === 'reuse') {
+    const which = fb.reuseSnapshot || plan.snapshotId;
+    const r = await reuseSnapshot({ apiKey: fb.apiKey, which, list: snapshots, direct: !!plan?.direct, maxWaitSeconds: fb.maxWaitSeconds, pollSeconds: fb.pollSeconds, fetchImpl, wait, log });
     records = r.records;
+    const createdAt = r.created && Number.isFinite(Date.parse(r.created)) ? new Date(r.created).toISOString() : null;
     // The data is as of the snapshot, so the next collection starts from there.
-    Object.assign(stats, { snapshotReused: true, collectedAt: r.created && Number.isFinite(Date.parse(r.created)) ? new Date(r.created).toISOString() : null, window: null });
+    Object.assign(stats, { snapshotReused: true, snapshotId: r.snapshotId, collectedAt: createdAt || previous?.lastSuccessAt || null, window: null });
+    state = { ...carried, snapshotId: r.snapshotId };
+    if (r.snapshotId === carried.pendingSnapshotId) {
+      // A collection we started earlier (which timed out here) has finished: count it now.
+      Object.assign(state, { pendingSnapshotId: null, lastCollectedAt: createdAt || carried.lastTriggeredAt, lastRecords: records.length, monthRecords: (carried.monthRecords || 0) + records.length, monthUnmeasured: Math.max(0, (carried.monthUnmeasured || 0) - 1) });
+    }
+    if (!state.lastCollectedAt && createdAt) state.lastCollectedAt = createdAt;
   } else {
-    ({ records } = await collect({ apiKey: fb.apiKey, groups, start, end, maxWaitSeconds: fb.maxWaitSeconds, pollSeconds: fb.pollSeconds, fetchImpl, wait, log }));
+    const triggeredAt = new Date(now).toISOString();
+    try {
+      let snapshotId;
+      ({ snapshotId, records } = await collect({ apiKey: fb.apiKey, groups, start, end, maxWaitSeconds: fb.maxWaitSeconds, pollSeconds: fb.pollSeconds, fetchImpl, wait, log }));
+      state = { ...carried, snapshotId, pendingSnapshotId: null, lastCollectedAt: triggeredAt, lastTriggeredAt: triggeredAt, lastRecords: records.length, monthRecords: (carried.monthRecords || 0) + records.length, monthCollections: (carried.monthCollections || 0) + 1 };
+      Object.assign(stats, { snapshotReused: false, snapshotId, collectedAt: triggeredAt });
+    } catch (err) {
+      if (err.triggeredSnapshotId) {
+        // Accepted by Bright Data but not finished here: start the cooldown anyway
+        // and remember the snapshot so a later run can reuse (and count) it.
+        err.state = { ...carried, lastTriggeredAt: triggeredAt, pendingSnapshotId: err.triggeredSnapshotId, monthCollections: (carried.monthCollections || 0) + 1, monthUnmeasured: (carried.monthUnmeasured || 0) + 1 };
+      }
+      throw err;
+    }
   }
+  const cooldownMs = fb.collectionCooldownHours * 3600000;
+  const lastAt = Math.max(...[state.lastCollectedAt, state.lastTriggeredAt].map((t) => Date.parse(t)).filter(Number.isFinite), -Infinity);
+  stats.collection = {
+    mode: stats.snapshotReused ? 'reused-snapshot' : 'new-collection',
+    reason: fb.reuseSnapshot ? `FACEBOOK_REUSE_SNAPSHOT=${fb.reuseSnapshot}` : plan.reason,
+    cooldownHours: fb.collectionCooldownHours,
+    nextCollectionAfter: Number.isFinite(lastAt) ? new Date(lastAt + cooldownMs).toISOString() : null,
+    month: state.month, monthRecords: state.monthRecords || 0, monthUnmeasured: state.monthUnmeasured || 0,
+    monthlyRecordBudget: fb.monthlyRecordBudget, monthlySafetyBuffer: fb.monthlySafetyBuffer,
+  };
   const audit = [];
   stats.recordsRetrieved = records.length;
   const keys = new Set();
@@ -464,6 +568,7 @@ export async function fetchListings(cfg, log = () => {}, { previous = null, now 
   if (records.length > fb.maxRecordsWarn) log(`facebook: WARNING ${records.length} records in one run (above FACEBOOK_MAX_RECORDS_WARN=${fb.maxRecordsWarn})`);
   log(`facebook: ${records.length} records (${stats.errorRecords} error records), ${stats.posts} posts, ${out.length} housing listings, ${stats.recordsWithImages} posts with image URLs`);
   out.sourceStats = stats;
+  out.state = state;
   // Every post id seen this run, accepted or not: this run's result replaces
   // any earlier copy (so a post the current parser rejects is not carried over).
   out.retrievedIds = retrieved;
