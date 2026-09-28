@@ -52,6 +52,13 @@ export const CANDIDATES = {
   trovit: { name: 'Trovit', origin: 'https://homes.trovit.com', pages: ['/rooms-for-rent-new-york', '/'] },
   rentola: { name: 'Rentola', origin: 'https://rentola.com', pages: ['/for-rent/new-york-city/rooms', '/'] },
   sharedeasy: { name: 'SharedEasy', origin: 'https://sharedeasy.club', pages: ['/furnished-rooms-for-rent-nyc/'] },
+  // Round 3 (2026-09-28): re-verify terms + robots ONLY, before any listing
+  // page is requested. Homepage is fetched just to discover the terms link.
+  diggzterms: { termsOnly: true, name: 'Diggz (terms + robots)', origin: 'https://www.diggz.co', pages: ['/'], terms: ['https://www.diggz.co/terms'] },
+  roomiterms: { termsOnly: true, name: 'Roomi (terms + robots)', origin: 'https://roomiapp.com', pages: ['/'], terms: ['https://roomiapp.com/legal?tab=terms'] },
+  spareroomterms: { termsOnly: true, name: 'SpareRoom US (terms + robots)', origin: 'https://www.spareroom.com', pages: ['/'], terms: ['https://www.spareroom.com/content/info/terms/'] },
+  listingsprojectterms: { termsOnly: true, name: 'Listings Project (terms + robots)', origin: 'https://www.listingsproject.com', pages: ['/'], terms: ['https://www.listingsproject.com/terms'] },
+  roomiematchterms: { termsOnly: true, name: 'RoomieMatch (terms + robots)', origin: 'https://www.roomiematch.com', pages: ['/'] },
 };
 
 // Clauses about copying/extracting/republishing content (not only "scraping").
@@ -119,13 +126,15 @@ async function probe(id, c) {
     for (const m of (res.body || '').matchAll(TERMS_HREF)) {
       try { const t = new URL(m[1].replace(/&amp;/g, '&'), url); if (t.host.endsWith(new URL(c.origin).host.replace(/^www\./, ''))) termsUrls.add(t.href); } catch { /* bad href */ }
     }
-    if (!detailTried && links.length) { detailTried = true; queue.push(links[0]); }
+    if (!c.termsOnly && !detailTried && links.length) { detailTried = true; queue.push(links[0]); }
   }
-  for (const t of [...termsUrls].slice(0, 3)) {
+  for (const t of [...termsUrls].slice(0, 4)) {
     const res = await get(t, { manualRedirect: false });
     const text = `${stripHtml(res.body || '')} ${flightText(res.body || '').replace(/\\n/g, ' ')}`;
     out.terms.push({
       url: t, status: res.status ?? res.error, antiBot: res.antiBot, bytes: (res.body || '').length,
+      updated: (text.match(/(?:last\s+(?:updated|modified|revised)|effective(?:\s+date)?)[:\s]+[^.;]{3,40}/i) || [null])[0],
+      apiMentions: [...new Set((text.match(/[^.]{0,120}\b(?:API|developer|data feed|partner integration)\b[^.]{0,120}/g) || []).map((x) => x.trim().slice(0, 300)))].slice(0, 3),
       clauses: [...new Set(text.split(/(?<=[.;:])\s+/).filter((s) => PROHIBITS.test(s) && s.length > 30).map((s) => s.slice(0, 600)))].slice(0, 6),
       reuseClauses: [...new Set(text.split(/(?<=[.;:])\s+/).filter((s) => REUSE.test(s) && !PROHIBITS.test(s) && s.length > 30).map((s) => s.slice(0, 600)))].slice(0, 6),
       file: await save(res),
@@ -145,7 +154,8 @@ function log(s) {
       + ` jsonld=[${p.jsonLdTypes.join(',')}] embedded=[${p.embedded.join(',')}] nextFlight=${p.nextFlightBytes}B listingLinks=${p.listingLinks} images=${p.images} prices=${p.priceMentions} pagination=[${p.pagination.join(',')}]`);
   }
   for (const t of s.terms) {
-    console.log(`terms ${t.url}: HTTP ${t.status} ${(t.antiBot || []).join(',')} ${t.bytes}B prohibiting-clauses=${t.clauses.length}`);
+    console.log(`terms ${t.url}: HTTP ${t.status} ${(t.antiBot || []).join(',')} ${t.bytes}B prohibiting-clauses=${t.clauses.length} updated=${t.updated || '?'}`);
+    for (const a of t.apiMentions || []) console.log(`    API? ${a}`);
     for (const c of t.clauses) console.log(`    » ${c}`);
     for (const c of t.reuseClauses || []) console.log(`    ≈ ${c}`);
   }
