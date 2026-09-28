@@ -53,8 +53,13 @@ jobs:
           cp "$RUNNER_TEMP/prev/status.json" "$RUNNER_TEMP/prev/listings.json" public/data/
           echo "PREV_DIR=$RUNNER_TEMP/prev" >> "$GITHUB_ENV"
 
-      - name: Dedupe regression against the published listings
-        run: node scripts/dedupe-check.js "$RUNNER_TEMP/prev/listings.json"
+      - name: Dedupe regression against the published listings (baseline = default branch's dedupe)
+        run: |
+          set -euo pipefail
+          base="${{ github.event.repository.default_branch }}"
+          git fetch -q --depth=1 origin "$base"
+          git show "origin/$base:scraper/dedupe.js" > "$RUNNER_TEMP/dedupe-baseline.mjs"
+          node scripts/dedupe-check.js "$RUNNER_TEMP/prev/listings.json" "$RUNNER_TEMP/dedupe-baseline.mjs"
 
       - name: Scrape (production settings, no Bright Data collection)
         run: node scraper/index.js

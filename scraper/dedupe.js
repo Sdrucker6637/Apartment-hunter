@@ -70,10 +70,14 @@ export function normalizeUnit(addr) {
 // Which room of a multi-room apartment this listing is ("Room A", "Bedroom 2",
 // "Room #3"), from the adapter's roomLabel or the title. Title only: in a
 // description "room 1 block from the train" would be a false label.
-const ROOM_LABEL = /\b(?:room|bedroom|br)\s*#?\s*([a-f]|[1-9])\b(?!\s*(?:-|\s)?(?:bed|br\b|bath|min|block|person|people|roommate|mo|month|of\b|\/))/i;
+// Letter labels must be capitals ("Room A"): lowercase "room a block away" is an article.
+const ROOM_LETTER = /\b(?:[Rr]oom|ROOM|[Bb]edroom|BEDROOM|BR)\s*#?\s*([A-F])\b/;
+// Digit labels must not be a count or distance ("Room 1 block", "Bedroom 2 bath").
+const ROOM_DIGIT = /\b(?:room|bedroom|br)\s*#?\s*([1-9])\b(?!\s*(?:-|\s)?(?:bed|br\b|bath|min|block|person|people|roommate|mo|month|of\b|\/))/i;
 export function roomLabel(l) {
   if (l.roomLabel) return String(l.roomLabel).toLowerCase();
-  const m = ROOM_LABEL.exec(l.title || '');
+  const t = l.title || '';
+  const m = ROOM_LETTER.exec(t) || ROOM_DIGIT.exec(t);
   return m ? m[1].toLowerCase() : null;
 }
 

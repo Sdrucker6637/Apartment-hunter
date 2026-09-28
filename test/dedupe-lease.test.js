@@ -26,6 +26,9 @@ test('room labels come from the title only and ignore bedroom counts', () => {
   assert.equal(roomLabel({ title: '2 bedroom apartment' }), null);
   assert.equal(roomLabel({ title: 'Room 1 block from the J' }), null);
   assert.equal(roomLabel({ title: 'Private room', roomLabel: 'C' }), 'c');
+  assert.equal(roomLabel({ title: 'Room A Bedroom in 3BR' }), 'a', 'a letter label followed by "Bedroom" is still a label');
+  assert.equal(roomLabel({ title: 'Nice room a block from the park' }), null, 'lowercase article is not a label');
+  assert.equal(roomLabel({ title: 'Full Bedroom A' }), 'a');
 });
 
 test('exact cross-source duplicate (same photo) → one canonical listing, every source URL kept', () => {

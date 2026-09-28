@@ -43,8 +43,10 @@ robots.txt, terms, blockers and the next step.
 | **Roomi** (roomiapp.com) | ⛔ PERMISSION_REQUIRED | Technically works: the NYC search page is server-rendered with about 90 structured listings (price, room type, bedrooms, move-in, lease, map pin, photos). The adapter parses them. robots.txt allows the search page and disallows `/listings/`. But the terms prohibit "webcrawler, spidering or other automated means to access, copy, index, process and/or store any Content … other than as expressly authorized by us". The adapter stays disabled until Roomi authorizes it (`ENABLE_SOURCES=roomi`). |
 | **Reddit** | 🔑 AUTH_REQUIRED | robots.txt is `Disallow: /`. Subreddit pages, `.json`, search, infinite scroll, old.reddit and post pages all returned **HTTP 403** ("blocked by network security"). Only the RSS feed answered, with 3 items. The User Agreement prohibits scraping without written consent. The permitted route is the official Data API. That adapter is built and waits for `REDDIT_CLIENT_ID` / `REDDIT_CLIENT_SECRET`. |
 | **Facebook** (Groups) | ⏳ UNVERIFIED until a real run | Collected through **Bright Data's** "Facebook - Posts by group URL" API (dataset `gd_lz11l67o2cb3r0lkj3`). Only public Groups are collected, logged off. This project never contacts facebook.com and uses no login, cookies or browser. Bright Data is not authorized by Meta; see the notes in the Sources panel. Needs `BRIGHTDATA_API_KEY` and `FACEBOOK_GROUPS`. |
-| **Diggz**, **Roomies.com** | ⏸ UNVERIFIED | Pages parse, but the terms pages are behind a Cloudflare challenge. Enable with `ENABLE_SOURCES` only after reading their terms. |
-| Craigslist, SpareRoom, Listings Project, StreetEasy, Leasebreak, PadMapper, Zumper, Bungalow, Nooklyn, Coliving.com, HousingAnywhere, PadSplit, Kopa | ⛔ PERMISSION_REQUIRED | Terms or robots.txt prohibit automated access (the exact clauses are in `scraper/sources/index.js`) |
+| **Diggz** | ⛔ PERMISSION_REQUIRED | Re-checked 2026-09-28. Public pages show real NYC room and whole-apartment leases, but the terms prohibit "any automated tool (e.g., robots, spiders) to access or use our Services or to store, copy … any Service Content". There's no API or feed, and bot requests get a Cloudflare challenge. The adapter stays disabled. See [the assessment](docs/source-assessment-2026-09-28.md). |
+| **Roomies.com** | ⛔ PERMISSION_REQUIRED | Terms prohibit screen/database scraping; the NYC page is behind a Cloudflare challenge. |
+| **RoomieMatch** | 🚫 NO_PUBLIC_ACCESS | Re-checked 2026-09-28. It matches members' roommate questionnaires; there are no public listings. Copying site content is prohibited. |
+| Craigslist, SpareRoom (re-checked 2026-09-28), Listings Project (re-checked 2026-09-28), StreetEasy, Leasebreak, PadMapper, Zumper, Bungalow, Nooklyn, Coliving.com, HousingAnywhere, PadSplit, Kopa | ⛔ PERMISSION_REQUIRED | Terms or robots.txt prohibit automated access (the exact clauses are in `scraper/sources/index.js`) |
 | RentHop, Outpost Club, HotPads, Bedly, Furnished Finder | 🚫 BLOCKED | Anti-bot challenge (HTTP 403) |
 
 Each source records separately:
@@ -58,7 +60,7 @@ Each source records separately:
 - `lastFailureAt`
 - `failureReason`
 
-Status is one of `LIVE`, `LIVE_WITH_LIMITATIONS`, `BLOCKED`, `AUTH_REQUIRED`, `PERMISSION_REQUIRED`, `NO_PUBLIC_ACCESS`, `DISABLED` or `UNVERIFIED`. A source is `LIVE` only in a run where it actually retrieved and parsed real listings.
+Status is one of `LIVE`, `LIVE_WITH_LIMITATIONS`, `BLOCKED`/`SOURCE_BLOCKED`, `ENVIRONMENT_BLOCKED`, `AUTH_REQUIRED`, `PERMISSION_REQUIRED`, `NO_PUBLIC_ACCESS`, `DISABLED` or `UNVERIFIED`. A source is `LIVE` only in a run where it actually retrieved and parsed real listings.
 
 The scraper always identifies itself honestly (`ApartmentHunterBot/0.2 (+repo URL)`):
 - It checks robots.txt before every request.
@@ -154,6 +156,22 @@ bedrooms, neighborhood and move-in date. Any stated conflict vetoes a merge:
 different bedrooms, room vs entire apartment, price, borough, or move-in
 dates more than 45 days apart.
 
+Unit and room identity work the same way:
+- The same street address with the same apartment or unit is evidence about
+  that apartment. Spellings like "550 W 157th St" and "550 West 157th Street"
+  count as the same address.
+- A street address alone only locates the building. It never merges two
+  listings when either source has several units in that building.
+- Two different units, or two different rooms ("Room A" / "Room B"), are
+  never merged, even when they share photos of the common areas.
+
+**Lease category.** Each listing is also classified as `LEASE`, `SUBLET`,
+`LEASE_TAKEOVER`, `SHORT_TERM` or `UNKNOWN` (`scraper/lease.js`). This comes
+from structured lease durations and explicit wording; "flexible" alone
+decides nothing. The listing type is unchanged. Sources whose adapter sets
+`leasesOnly` publish only `LEASE` and `UNKNOWN`. Their sublets, takeovers
+and short stays are counted as discarded.
+
 **Adding a source.** Write an adapter in `scraper/sources/` that exports
 `meta` (id, label, `uniqueIds`, `requiresEnable`…) and `fetch()` returning
 partial listings, and register it in `scraper/sources/index.js`. Filters,
@@ -194,6 +212,13 @@ hours (`23 */3 * * *`) and on demand, and each run:
 No scraped data is committed to the repository. Manual inputs:
 `data: keep` redeploys the site with the currently published data (no
 scraping); `facebook_snapshot` forces a specific Bright Data snapshot.
+
+`.github/workflows/prod-dryrun.yml` runs the production pipeline without
+deploying anything, on any branch:
+1. restore the published data;
+2. run `scripts/dedupe-check.js` against it (count-only regression checks);
+3. scrape the enabled sources, with no Bright Data collection;
+4. sanitize, privacy-audit and apply the publish guard.
 
 `.github/workflows/scrape.yml` is manual verification only (no schedule, no
 publishing): **Run workflow → mode: verify** scrapes, encrypts the results on
