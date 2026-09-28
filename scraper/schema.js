@@ -12,6 +12,9 @@
 export const SOURCE_STATUS = [
   'LIVE',                   // fetched and parsed real listings this run
   'LIVE_WITH_LIMITATIONS',  // fetched, but partial data (e.g. no photos, some pages blocked)
+  'BLOCKED',                // legacy alias of SOURCE_BLOCKED
+  'PERMISSION_REQUIRED',    // terms/robots prohibit automated access; needs the site's permission or an API
+  'DISABLED',               // adapter exists but is switched off
   'AUTH_REQUIRED',          // needs credentials we don't have
   'ENVIRONMENT_BLOCKED',    // our runner's network couldn't reach it (not the site's choice)
   'SOURCE_BLOCKED',         // site refused automated requests (403, anti-bot challenge)
@@ -19,6 +22,8 @@ export const SOURCE_STATUS = [
   'MANUAL_ONLY',            // only via hand-added listings
   'UNVERIFIED',             // adapter exists but hasn't succeeded against live data
 ];
+
+import { leaseCategory } from './lease.js';
 
 export const BASIS = ['structured', 'explicit', 'calculated', 'inferred', null];
 
@@ -67,7 +72,7 @@ export function normalizeListing(partial, { scrapedAt = new Date().toISOString()
   };
   const photos = (partial.photos || []).filter((p) => p && /^https:\/\//.test(p.url));
   const type = partial.listingType?.value && LISTING_TYPES.includes(partial.listingType.value) ? partial.listingType : { value: 'UNKNOWN', basis: null };
-  return {
+  const listing = {
     id: `${partial.source}:${partial.sourceId}`,
     dataKind, // 'REAL' from a live source, 'SAMPLE' for fixtures — never mixed in production output
     source: partial.source,
@@ -124,4 +129,7 @@ export function normalizeListing(partial, { scrapedAt = new Date().toISOString()
     photoCount: photos.length,
     photoStatus: photos.length ? 'available' : (partial.photoStatus || 'none'), // available | source_only | none
   };
+  // LEASE | SUBLET | LEASE_TAKEOVER | SHORT_TERM | UNKNOWN (scraper/lease.js)
+  listing.leaseCategory = leaseCategory(listing);
+  return listing;
 }

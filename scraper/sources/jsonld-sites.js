@@ -1,8 +1,10 @@
 // Diggz and Roomies.com both publish NYC room listings as schema.org JSON-LD
-// on their public index pages (verified 2026-09-25 by probe). Their terms
-// pages sit behind a Cloudflare challenge, so we could NOT confirm whether
-// automated access is allowed. These adapters are therefore DISABLED unless
-// the owner confirms the terms and sets ENABLE_SOURCES=diggz,roomies.
+// on their public index pages (verified 2026-09-25 by probe). Both sites'
+// terms PROHIBIT automated access (Diggz re-read in full 2026-09-28: no
+// "automated tool (e.g., robots, spiders)" to access the service or store/copy
+// its content), and neither offers an API. These adapters are DISABLED
+// (PERMISSION_REQUIRED, see sources/index.js) and must stay so unless the site
+// gives written permission; only then set ENABLE_SOURCES=diggz / roomies.
 
 import { fetchText, jsonLdBlocks, decodeEntities } from '../http.js';
 import { parseListing } from '../parse.js';
@@ -16,8 +18,10 @@ export const SITES = {
       id: 'diggz',
       name: 'Diggz',
       kind: 'Rooms offered by individuals',
-      access: 'Public index has JSON-LD; terms unverified (Cloudflare challenge on terms page)',
+      access: 'Public index has JSON-LD; terms prohibit automated access (permission required)',
       photos: 'Direct from listing (diggz-pron.s3.amazonaws.com), hotlink-accessible in probe',
+      // Diggz mixes leases with sublets/short stays; publish ordinary leases only.
+      leasesOnly: true,
     },
     index: 'https://www.diggz.co/rooms-for-rent/new-york-ny',
   },
@@ -26,7 +30,7 @@ export const SITES = {
       id: 'roomies',
       name: 'Roomies.com',
       kind: 'Rooms offered by individuals',
-      access: 'Public index has JSON-LD; terms unverified (Cloudflare challenge on terms page)',
+      access: 'Public index has JSON-LD; terms prohibit screen scraping (permission required)',
       photos: 'Direct from listing (cloudinary.roomies.pics), hotlink-accessible in probe',
     },
     index: 'https://www.roomies.com/rooms/new-york-ny',

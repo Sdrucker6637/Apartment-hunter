@@ -502,7 +502,7 @@ function renderCounts() {
 // ---------- rendering: about ----------
 const STATUS_LABEL = {
   LIVE: 'LIVE', LIVE_WITH_LIMITATIONS: 'LIVE · LIMITED', BLOCKED: 'BLOCKED', AUTH_REQUIRED: 'LOGIN / CREDENTIALS REQUIRED',
-  PERMISSION_REQUIRED: 'PERMISSION REQUIRED', NO_PUBLIC_ACCESS: 'NO PUBLIC ACCESS', DISABLED: 'DISABLED', UNVERIFIED: 'UNVERIFIED',
+  PERMISSION_REQUIRED: 'PERMISSION REQUIRED', SOURCE_BLOCKED: 'BLOCKED BY SITE', ENVIRONMENT_BLOCKED: 'UNREACHABLE FROM RUNNER', NO_PUBLIC_ACCESS: 'NO PUBLIC ACCESS', DISABLED: 'DISABLED', UNVERIFIED: 'UNVERIFIED',
 };
 const PERMITTED = { yes: 'Permitted', no: 'Not permitted', unclear: 'Unclear', 'api-only': 'Only via official API' };
 const yesNo = (v) => (v === true ? 'Yes' : v === false ? 'No' : v === 'partial' ? 'Partly' : '—');
@@ -583,7 +583,7 @@ function renderStatus() {
       ${q ? `<div class="qgrid">${cov(q)}</div><p class="srow-meta">${Object.entries(q.types).map(([k, v]) => `${v} ${esc(TYPE_PLURAL[k]?.[v === 1 ? 0 : 1] || k)}`).join(' · ')} · ${q.needsConfirmation} need price confirmation · ${q.inferredFields} estimated values</p>` : ''}
       ${reviewHtml(s)}</div>`;
   };
-  const ex = (s) => `<div class="srow"><div class="srow-head"><span class="srow-name">${esc(s.name)}</span><span class="src-state ${esc(s.status)}">${esc(STATUS_LABEL[s.status] || s.status)}</span></div><p class="srow-reason">${esc(s.reason)} <em>(checked ${esc(s.checkedAt)})</em></p></div>`;
+  const ex = (s) => `<div class="srow"><div class="srow-head"><span class="srow-name">${esc(s.name)}</span><span class="src-state ${esc(s.status)}">${esc(STATUS_LABEL[s.status] || s.status)}</span></div><p class="srow-reason">${esc(s.reason)} <em>(checked ${esc(s.checkedAt)})</em></p>${reviewHtml({ ...s, enabled: false })}</div>`;
   body.innerHTML = `
     <p class="muted" style="margin:0">From the scraper run ${esc(ago(st.generatedAt))} (${esc(new Date(st.generatedAt).toLocaleString())}). Every number here comes from that run.</p>
     <div class="status-summary">

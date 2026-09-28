@@ -60,6 +60,23 @@ export function normalizeAddress(addr) {
   return /^\d+[a-z]?(?:-\d+)? \S+/.test(s) ? s : null; // needs a house number + street
 }
 
+// "550 W 157th St Apt 4B" / "..., #4b" / "Unit 4-B" → "4b". null when no unit.
+export function normalizeUnit(addr) {
+  if (!addr) return null;
+  const m = /(?:\b(?:apt|apartment|unit|suite|ste)\b\.?\s*#?\s*|#\s*)([a-z0-9]+(?:-[a-z0-9]+)?)\b/i.exec(String(addr));
+  return m ? m[1].replace(/-/g, '').toLowerCase() : null;
+}
+
+// Which room of a multi-room apartment this listing is ("Room A", "Bedroom 2",
+// "Room #3"), from the adapter's roomLabel or the title. Title only: in a
+// description "room 1 block from the train" would be a false label.
+const ROOM_LABEL = /\b(?:room|bedroom|br)\s*#?\s*([a-f]|[1-9])\b(?!\s*(?:-|\s)?(?:bed|br\b|bath|min|block|person|people|roommate|mo|month|of\b|\/))/i;
+export function roomLabel(l) {
+  if (l.roomLabel) return String(l.roomLabel).toLowerCase();
+  const m = ROOM_LABEL.exec(l.title || '');
+  return m ? m[1].toLowerCase() : null;
+}
+
 function metersBetween(a, b) {
   const R = 6371000;
   const toRad = (d) => (d * Math.PI) / 180;
@@ -87,6 +104,14 @@ export function conflicts(a, b) {
   const ma = a.moveIn.value?.date;
   const mb = b.moveIn.value?.date;
   if (ma && mb && dayDiff(ma, mb) > 45) out.push('move-in dates far apart');
+  // Room- and unit-level identity: two rooms (or units) in one building are different listings.
+  const ra = roomLabel(a);
+  const rb = roomLabel(b);
+  if (ra && rb && ra !== rb) out.push('different rooms');
+  const na = normalizeAddress(a.address);
+  const ua = normalizeUnit(a.address);
+  const ub = normalizeUnit(b.address);
+  if (na && na === normalizeAddress(b.address) && ua && ub && ua !== ub) out.push('different units');
   return out;
 }
 
@@ -133,7 +158,12 @@ export function compare(a, b, { uniqueIdSources = new Set() } = {}) {
   const ca = contacts(a);
   if ([...contacts(b)].some((c) => ca.has(c))) add(3, 'same contact', true);
   const na = normalizeAddress(a.address);
-  if (na && na === normalizeAddress(b.address)) add(2, 'same street address', true, false);
+  if (na && na === normalizeAddress(b.address)) {
+    const ua = normalizeUnit(a.address);
+    // Same building AND same apartment is about the unit, not just the building.
+    if (ua && ua === normalizeUnit(b.address)) add(3, 'same address and unit', true, true);
+    else add(2, 'same street address', true, false);
+  }
   if (a.location && b.location) {
     const m = metersBetween(a.location, b.location);
     if (m <= 120) add(2, `map pins ${Math.round(m)} m apart`, true, false);

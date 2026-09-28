@@ -220,9 +220,11 @@ test('cross-source dedupe: generic facts never merge; specific evidence does; co
   assert.equal(compare(a, b).same, false, 'price + beds + neighborhood + move-in alone do not merge');
   assert.equal(dedupe([a, b]).length, 2);
 
-  // Same street address (different unit formatting) + matching facts: merge, keep both URLs.
+  // Same street address (different spelling; one side gives no unit) + matching facts: merge, keep both URLs.
   const c = mk('junehomes', 3, { address: '123 West 45th Street, Apt 4B' });
-  const d = mk('roomster', 4, { address: '123 W 45th St #2' });
+  const d = mk('roomster', 4, { address: '123 W 45th St' });
+  // Two explicitly different units in that building are different apartments.
+  assert.equal(compare(c, mk('roomster', 11, { address: '123 W 45th St #2' })).same, false);
   const r = compare(c, d);
   assert.equal(r.same, true, r.reason);
   const out = dedupe([c, d]);

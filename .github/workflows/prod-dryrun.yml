@@ -1,0 +1,85 @@
+name: Production dry run (no deploy)
+
+# MANUAL ONLY. Runs the production pipeline of pages.yml end to end on any
+# branch — restore the published data, dedupe regression checks against it,
+# live scrape of the enabled sources, sanitize + privacy audit, publish guard —
+# and then STOPS: nothing is deployed, uploaded or committed.
+#
+# Differences from pages.yml, on purpose:
+# - Facebook: BRIGHTDATA_API_KEY is not passed, so no Bright Data collection
+#   (and no cost) happens; Facebook's published listings are carried over
+#   exactly as production does when that source doesn't run.
+# - The refresh state is not saved anywhere, so the scheduled production run
+#   is unaffected.
+# The log contains counts and statuses only (scraper/index.js logSummary,
+# scripts/dedupe-check.js), never listing text, contacts or URLs.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: prod-dryrun
+  cancel-in-progress: false
+
+jobs:
+  dryrun:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm test --silent > /dev/null && echo "tests passed"
+
+      - name: Restore the published data
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          url=$(gh api "repos/$GITHUB_REPOSITORY/pages" --jq .html_url)
+          mkdir -p "$RUNNER_TEMP/prev" public/data
+          for f in status.json listings.json; do
+            curl -fsS --retry 4 --retry-delay 10 --retry-all-errors "${url%/}/data/$f?t=$(date +%s)" -o "$RUNNER_TEMP/prev/$f"
+          done
+          cp "$RUNNER_TEMP/prev/status.json" "$RUNNER_TEMP/prev/listings.json" public/data/
+          echo "PREV_DIR=$RUNNER_TEMP/prev" >> "$GITHUB_ENV"
+
+      - name: Dedupe regression against the published listings
+        run: node scripts/dedupe-check.js "$RUNNER_TEMP/prev/listings.json"
+
+      - name: Scrape (production settings, no Bright Data collection)
+        run: node scraper/index.js
+        env:
+          REDDIT_CLIENT_ID: ${{ secrets.REDDIT_CLIENT_ID }}
+          REDDIT_CLIENT_SECRET: ${{ secrets.REDDIT_CLIENT_SECRET }}
+          FACEBOOK_GROUPS: ${{ vars.FACEBOOK_GROUPS }}
+          ENABLE_SOURCES: ${{ vars.ENABLE_SOURCES }}
+          MAX_SHARE: ${{ vars.MAX_SHARE }}
+
+      - name: Sanitize + privacy audit + publish guard (not deployed)
+        run: |
+          set -euo pipefail
+          node scripts/sanitize.js public/data "$RUNNER_TEMP/site/data"
+          node scripts/publish-guard.js "$PREV_DIR" "$RUNNER_TEMP/site/data" refresh
+          echo "privacy audit + publish guard passed (dry run: nothing deployed)"
+
+      - name: Report (counts only)
+        run: |
+          node -e '
+            const s = require(process.argv[1] + "/status.json"), d = require(process.argv[1] + "/listings.json");
+            const t = s.totals, L = d.listings;
+            const n = (f) => L.filter(f).length;
+            const cat = {}; for (const l of L) { const c = l.leaseCategory?.value || "UNKNOWN"; cat[c] = (cat[c] || 0) + 1; }
+            const typ = {}; for (const l of L) typ[l.listingType.value] = (typ[l.listingType.value] || 0) + 1;
+            console.log(`final published-equivalent count: ${L.length} · photos ${t.withPhotos}/${L.length} · duplicates merged ${t.duplicatesMerged} · multi-source listings ${n((l) => (l.sourceCount || 1) > 1)}`);
+            console.log(`listing types: ${JSON.stringify(typ)} · lease categories: ${JSON.stringify(cat)}`);
+            console.log(`dropped: ${JSON.stringify(t.dropped)}`);
+            const five = ["diggz", "roomi", "spareroom", "listingsproject", "roomiematch"];
+            for (const id of five) {
+              const x = s.sources.find((y) => y.id === id) || (s.excluded || []).find((y) => y.id === id);
+              console.log(`${id}: ${x ? x.status : "missing"}${x && x.enabled ? ` · retrieved ${x.retrieved} · in dataset ${x.inDataset}` : " · not run"}`);
+            }
+          ' "$RUNNER_TEMP/site/data"

@@ -21,6 +21,8 @@ import * as facebook from './facebook.js';
 import * as jsonldSites from './jsonld-sites.js';
 
 const CHECKED = '2026-09-25';
+// Round 3 re-check (probe/candidates.js *terms entries; investigate runs 36470818701, 36470975323).
+const RECHECKED = '2026-09-28';
 
 export const SOURCES = [
   {
@@ -53,14 +55,18 @@ export const SOURCES = [
     ...roomi.meta, domain: 'roomiapp.com', enabledByDefault: false,
     run: (cfg, log) => roomi.fetchListings({ log }),
     review: {
-      checkedAt: CHECKED, technicallyAccessible: true, scrapingTested: true, termsReviewed: true, automatedAccessPermitted: 'no',
-      robots: 'Allows /rooms-for-rent/ search pages; disallows /listings/ (detail pages), /api/, /messages/ and account pages.',
-      blockers: ['Terms (roomiapp.com/legal): "the use of webcrawler, spidering or other automated means to access, copy, index, process and/or store any Content … other than as expressly authorized by us, is prohibited" (also prohibits in-line linking, i.e. hotlinking photos)'],
-      pagesTested: ['/rooms-for-rent/new-york (90 listings in page data)', '/rooms-for-rent/new-york?page=2 (same 90)', '/sitemap.xml', '/rooms-for-rent/new-york-city (no data)', '/rooms-for-rent/brooklyn (no data)', '/find-roommates/new-york', '/legal?tab=terms'],
-      pagination: 'None: ?page=2 returns the same 90 listings; sitemap lists city pages (/rooms-for-rent/…) but no listings', photos: 'Yes — up to 10 photos per listing in the search page data',
+      checkedAt: RECHECKED, technicallyAccessible: true, scrapingTested: true, termsReviewed: true, automatedAccessPermitted: 'no',
+      robots: 'Re-read 2026-09-28: allows / and /rooms-for-rent/ search pages; disallows /listings/ (detail pages), /api/, /messages/, /my-profile/ and auth pages.',
+      blockers: [
+        'Terms (roomiapp.com/legal?tab=terms, "Last updated on June 9, 2022", re-read 2026-09-28): "The framing or scraping of or in-line linking to our Services or any Content, and/or the use of webcrawler, spidering or other automated means to access, copy, index, process and/or store any Content or the Services, other than as expressly authorized by us, is prohibited."',
+        'Also prohibits "\"spidering\", \"screen scraping\" … \"database scraping\", or any other activity with the purposes of obtaining lists of other users or other information", and using the Services "to construct any kind of database or search engine".',
+        'No public API or feed: robots.txt disallows /api/ and the terms mention no developer/partner access.',
+      ],
+      pagesTested: ['2026-09-25: /rooms-for-rent/new-york (90 listings in page data), ?page=2 (same 90), /sitemap.xml, /find-roommates/new-york', '2026-09-28 (terms/robots only; no listing page requested): /robots.txt, / (→ /browse-rooms), /legal?tab=terms'],
+      pagination: 'None: ?page=2 returns the same 90 listings; sitemap lists city pages (/rooms-for-rent/…) but no listings', photos: 'Yes — up to 10 photos per listing in the search page data (in-line linking is prohibited by the terms)',
     },
     defaultStatus: 'PERMISSION_REQUIRED',
-    reason: 'Technically scrapeable: the NYC search page carries ~90 structured listings with photos, and the adapter parses them. But Roomi\'s terms prohibit crawling or automated copying/storing of content (and in-line linking) unless Roomi expressly authorizes it.',
+    reason: 'Technically scrapeable: the NYC search page carries ~90 structured listings with photos, and the adapter parses them. But Roomi\'s terms (re-verified 2026-09-28) prohibit crawling or automated copying/storing of content (and in-line linking) unless Roomi expressly authorizes it, and there is no public API.',
     nextStep: 'Ask Roomi for written authorization (their terms allow use "expressly authorized by us"). With it, set ENABLE_SOURCES=roomi; the adapter is built and was tested against the live page.',
   },
   {
@@ -106,10 +112,25 @@ export const SOURCES = [
   {
     ...jsonldSites.SITES.diggz.meta, domain: 'diggz.co', enabledByDefault: false,
     run: (cfg, log) => jsonldSites.fetchListings('diggz', { log }),
-    review: { checkedAt: CHECKED, technicallyAccessible: false, scrapingTested: true, termsReviewed: true, automatedAccessPermitted: 'no', robots: 'Allows listing pages', pagination: 'n/a', photos: 'Yes', blockers: ['Terms (diggz.co/terms): may not "use any automated tool (e.g., robots, spiders) to access or use our Services or to store, copy, modify, distribute, or resell any Service Content"', 'Homepage now returns a Cloudflare challenge (HTTP 403)'] },
+    review: {
+      checkedAt: RECHECKED, technicallyAccessible: false, scrapingTested: true, termsReviewed: true, automatedAccessPermitted: 'no',
+      robots: 'Re-read 2026-09-28: "User-agent: *" disallows only /like action endpoints; listing pages are allowed. robots.txt does not grant permission the terms withhold.',
+      pagination: 'n/a (not crawled)',
+      photos: 'Yes on the public pages, but copying/storing Service Content with automated tools is prohibited',
+      blockers: [
+        'Terms (diggz.co/terms, re-read in full 2026-09-28): you may not "(ii) use any automated tool (e.g., robots, spiders) to access or use our Services or to store, copy, modify, distribute, or resell any Service Content", nor "compile or collect any Service Content as part of a database or other work".',
+        'No public API, JSON feed or partner/developer program is documented in the terms, robots.txt or site.',
+        'The homepage answers automated requests with a Cloudflare challenge (HTTP 403, 2026-09-28); we do not attempt to pass it.',
+      ],
+      termsNotes: [
+        'Public pages do show real NYC lease inventory (individual-room and whole-apartment leases with rent, move-in, lease duration, photos) — which is why it was the top candidate — but being visible in a browser is not authorization for automated collection.',
+        'The adapter (scraper/sources/jsonld-sites.js) stays in the repo, disabled. It would be run only with Diggz\'s written permission; if enabled it must set leasesOnly so sublets and short stays are not published.',
+      ],
+      pagesTested: ['2026-09-25: /rooms-for-rent/new-york-ny (JSON-LD ItemList parsed), /terms', '2026-09-28 (terms/robots only; no listing page requested): /robots.txt, / (403 Cloudflare challenge), /terms (full text read)'],
+    },
     defaultStatus: 'PERMISSION_REQUIRED',
-    reason: 'Terms prohibit automated tools ("robots, spiders") for accessing the service or storing/copying its content; the homepage is also behind a Cloudflare challenge.',
-    nextStep: 'Only with Diggz\'s written permission.',
+    reason: 'Terms prohibit using automated tools ("robots, spiders") to access the service or to store/copy its content, and compiling its content into a database. No public API or feed exists. The homepage is also behind a Cloudflare challenge for automated requests.',
+    nextStep: 'Request written permission or a data feed/API from Diggz (partnership). With it: enable via ENABLE_SOURCES=diggz with leasesOnly, run mode: verify, audit lease/sublet classification, photos, dedupe and privacy before production.',
   },
   {
     ...jsonldSites.SITES.roomies.meta, domain: 'roomies.com', enabledByDefault: false,
@@ -127,8 +148,28 @@ export const ADAPTERS = SOURCES.filter((s) => s.run);
 // Sources evaluated and deliberately not scraped.
 export const EXCLUDED = [
   { id: 'craigslist', name: 'Craigslist NYC', status: 'PERMISSION_REQUIRED', reason: 'Terms: "You agree not to copy/collect CL content via robots, spiders, scripts, scrapers, crawlers." RSS feeds were discontinued.', checkedAt: CHECKED },
-  { id: 'spareroom', name: 'SpareRoom', status: 'PERMISSION_REQUIRED', reason: 'Terms: may not "harvest information, with use of software or otherwise". No public API.', checkedAt: CHECKED },
-  { id: 'listingsproject', name: 'Listings Project', status: 'PERMISSION_REQUIRED', reason: 'Terms: "Scraping and Republishing Prohibited". No API.', checkedAt: CHECKED },
+  {
+    id: 'spareroom', name: 'SpareRoom', domain: 'spareroom.com', status: 'PERMISSION_REQUIRED', checkedAt: RECHECKED,
+    reason: 'Terms (US, re-read 2026-09-28) prohibit harvesting information "with use of software or otherwise" except as the terms authorize, and they authorize no automated access. No public API, feed or integration program. Browsing without registration does not authorize automated collection.',
+    nextStep: 'Only with written permission or an official partner feed from SpareRoom (Flatshare Ltd).',
+    review: {
+      checkedAt: RECHECKED, technicallyAccessible: 'partial', scrapingTested: false, termsReviewed: true, automatedAccessPermitted: 'no',
+      robots: 'Disallows listing detail scripts (/roommate/room_for_rent.pl, /roommate/roommate_detail.pl) and search-action URLs, among others.',
+      blockers: ['Terms (spareroom.com/content/padded/terms-us): users must not "harvest information, with use of software or otherwise, from the Platform for purposes other than as specifically authorized under these Terms"', 'Homepage carries captcha markers for automated requests'],
+      pagesTested: ['2026-09-28 (terms/robots only; no listing page requested): /robots.txt, /, /content/padded/terms-us'],
+    },
+  },
+  {
+    id: 'listingsproject', name: 'Listings Project', domain: 'listingsproject.com', status: 'PERMISSION_REQUIRED', checkedAt: RECHECKED,
+    reason: 'Terms of Use (re-read 2026-09-28), section "Scraping and Republishing Prohibited": no one may, "whether manually or by automation", harvest, crawl, scrape, aggregate or store "any listing or other Content", nor republish, collect/store or redistribute listings. The terms describe the platform as requiring registration. No API.',
+    nextStep: 'Not pursued: the terms forbid exactly what an aggregator does (storing, aggregating and republishing listings).',
+    review: {
+      checkedAt: RECHECKED, technicallyAccessible: 'partial', scrapingTested: false, termsReviewed: true, automatedAccessPermitted: 'no',
+      robots: 'Blocks AI-training bots from listings; other bots fall through to "User-agent: *" rules. Irrelevant here: the terms prohibit scraping outright.',
+      blockers: ['Terms (listingsproject.com/terms-of-use): "extract data from the LP Platform … including … harvesting, crawling, indexing, scraping, spidering, mining, gathering, extracting, compiling, obtaining, aggregating, capturing, or storing any listing" is prohibited', 'Prohibits "(a) republishing any posting, listing …", "(d) collecting, storing, reproducing …", "(e) redistributing …"', 'States the platform requires registration and authentication (non-public)'],
+      pagesTested: ['2026-09-28 (terms/robots only; no listing page requested): /robots.txt, /, /terms-of-use, /membership-terms-and-conditions'],
+    },
+  },
   { id: 'streeteasy', name: 'StreetEasy', status: 'PERMISSION_REQUIRED', reason: 'Zillow terms prohibit "automated queries (including screen and database scraping, spiders, robots, crawlers…)". No public API.', checkedAt: CHECKED },
   { id: 'leasebreak', name: 'Leasebreak', status: 'PERMISSION_REQUIRED', reason: 'Terms: "The use of bots, web crawlers, scripts, or any automated tools to scrape… is expressly prohibited."', checkedAt: CHECKED },
   { id: 'bungalow', name: 'Bungalow', status: 'PERMISSION_REQUIRED', reason: 'Terms prohibit crawling, spidering, harvesting or scraping.', checkedAt: CHECKED },
@@ -148,7 +189,17 @@ export const EXCLUDED = [
   { id: 'furnishedfinder', name: 'Furnished Finder', status: 'BLOCKED', reason: 'Cloudflare challenge (HTTP 403) on its terms pages; permission cannot be confirmed.', checkedAt: CHECKED },
   { id: 'roommatescom', name: 'Roommates.com', status: 'PERMISSION_REQUIRED', reason: 'Terms (roommates.com/tos): may not "Use any robot, spider, crawler, scraper, or other automated means … to access the Services or to extract data"; the NYC rooms page is behind a Cloudflare challenge.', checkedAt: CHECKED },
   { id: 'habyt', name: 'Habyt', status: 'UNVERIFIED', reason: 'robots.txt allows crawling; terms page not found at standard URLs. Needs a manual terms review.', checkedAt: CHECKED },
-  { id: 'roomiematch', name: 'RoomieMatch', status: 'UNVERIFIED', reason: 'robots.txt allows crawling; terms page not found. Matching is questionnaire-based, not public listings.', checkedAt: CHECKED },
+  {
+    id: 'roomiematch', name: 'RoomieMatch', domain: 'roomiematch.com', status: 'NO_PUBLIC_ACCESS', checkedAt: RECHECKED,
+    reason: 'Questionnaire-based matching between members\' personal roommate profiles, not a public board of room/apartment listings. Its privacy/terms/copyright page (re-read 2026-09-28) says copying more than a few sentences of the site and reproducing it anywhere "is NEVER permitted". No API. Personal profiles are not collected by this project.',
+    nextStep: 'None: no public listing inventory, and copying is prohibited.',
+    review: {
+      checkedAt: RECHECKED, technicallyAccessible: false, scrapingTested: false, termsReviewed: true, automatedAccessPermitted: 'no',
+      robots: '"User-agent: *" with no Disallow (allows crawling). robots.txt does not override the copyright terms.',
+      blockers: ['privacy-terms-copyright page: "Copying more than a few sentences of our site and pasting it onto yours or reproducing it anywhere else in any format is NEVER permitted"', 'Data is member roommate profiles (people), which this project does not collect'],
+      pagesTested: ['2026-09-28 (terms/robots only; no profile page requested): /robots.txt, /, /privacy-terms-copyright/'],
+    },
+  },
   { id: 'tripalink', name: 'Tripalink', status: 'UNVERIFIED', reason: 'robots.txt timed out; terms reachable but no NYC listing pages confirmed.', checkedAt: CHECKED },
   // Round 2 source search, 2026-09-25 (probe/candidates.js, investigate runs 36188449879, 36188881559 and later).
   { id: 'roomgo', name: 'Roomgo', status: 'PERMISSION_REQUIRED', reason: 'NYC room listings load (robots allows /new-york/NYC-roommate), but the terms say "You may not publish, distribute, extract, re-utilise, or reproduce any part of the Site or Content in any form (including storing it in any medium)" without permission.', checkedAt: CHECKED },

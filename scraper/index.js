@@ -13,6 +13,7 @@ import { SOURCES, EXCLUDED } from './sources/index.js';
 import { normalizeListing } from './schema.js';
 import { validatePhotos } from './photos.js';
 import { dedupe } from './dedupe.js';
+import { leaseCategory, isOrdinaryLeaseOrUnknown } from './lease.js';
 import { BlockedError, RobotsDisallowedError } from './http.js';
 
 export const LISTINGS_PATH = new URL('../public/data/listings.json', import.meta.url);
@@ -31,7 +32,7 @@ export function classifyError(err) {
   return 'LIVE_WITH_LIMITATIONS';
 }
 
-export const STATUSES = ['LIVE', 'LIVE_WITH_LIMITATIONS', 'BLOCKED', 'AUTH_REQUIRED', 'PERMISSION_REQUIRED', 'NO_PUBLIC_ACCESS', 'DISABLED', 'UNVERIFIED'];
+export const STATUSES = ['LIVE', 'LIVE_WITH_LIMITATIONS', 'BLOCKED', 'SOURCE_BLOCKED', 'ENVIRONMENT_BLOCKED', 'AUTH_REQUIRED', 'PERMISSION_REQUIRED', 'NO_PUBLIC_ACCESS', 'DISABLED', 'UNVERIFIED'];
 
 async function readJson(url, fallback) {
   try { return JSON.parse(await readFile(url, 'utf8')); } catch { return fallback; }
@@ -211,11 +212,16 @@ export async function run({ offline = false, dryRun = false, log = console.log, 
     droppedBySource[source] ??= {};
     droppedBySource[source][reason] = (droppedBySource[source][reason] || 0) + 1;
   };
+  // Sources whose purpose here is ordinary leases (adapter meta `leasesOnly`):
+  // sublets, takeovers and short stays are classified but not published.
+  const leasesOnlySources = new Set(sources.filter((a) => a.leasesOnly).map((a) => a.id));
   const kept = [];
   for (const l of byId.values()) {
+    l.leaseCategory ??= leaseCategory(l);
     // Production output is REAL data only: sample/fixture listings never pass.
     if (l.dataKind !== 'REAL') { drop('not real data', l.source); continue; }
     if (l.postType === 'seeking') { drop('seeking', l.source); continue; }
+    if (leasesOnlySources.has(l.source) && !isOrdinaryLeaseOrUnknown(l.leaseCategory.value)) { drop(`not an ordinary lease (${l.leaseCategory.value})`, l.source); continue; }
     if (l.price.share != null && l.price.share > config.maxShare) { drop('over budget', l.source); continue; }
     // Age: the later of posted and last-edited-on-source (an active listing the lister updated recently is current).
     const dates = [l.postedAt, l.sourceUpdatedAt].filter(Boolean).map(Date.parse).filter(Number.isFinite);
