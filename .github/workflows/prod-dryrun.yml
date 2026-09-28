@@ -15,9 +15,15 @@ name: Production dry run (no deploy)
 # scripts/dedupe-check.js), never listing text, contacts or URLs.
 on:
   workflow_dispatch:
+  # TEMPORARY: lets this branch run it once before the file exists on the
+  # default branch (workflow_dispatch only registers from there). Remove.
+  push:
+    branches: ['claude/apartment-hunter-sources-1vibwe']
+    paths: ['.github/workflows/prod-dryrun.yml']
 
 permissions:
   contents: read
+  pages: read
 
 concurrency:
   group: prod-dryrun
