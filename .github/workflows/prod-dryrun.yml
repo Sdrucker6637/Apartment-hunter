@@ -4,6 +4,7 @@ name: Production dry run (no deploy)
 # branch — restore the published data, dedupe regression checks against it,
 # live scrape of the enabled sources, sanitize + privacy audit, publish guard —
 # and then STOPS: nothing is deployed, uploaded or committed.
+# First real run: 36471896060 (2026-09-28).
 #
 # Differences from pages.yml, on purpose:
 # - Facebook: BRIGHTDATA_API_KEY is not passed, so no Bright Data collection
@@ -15,11 +16,6 @@ name: Production dry run (no deploy)
 # scripts/dedupe-check.js), never listing text, contacts or URLs.
 on:
   workflow_dispatch:
-  # TEMPORARY: lets this branch run it once before the file exists on the
-  # default branch (workflow_dispatch only registers from there). Remove.
-  push:
-    branches: ['claude/apartment-hunter-sources-1vibwe']
-    paths: ['.github/workflows/prod-dryrun.yml']
 
 permissions:
   contents: read
