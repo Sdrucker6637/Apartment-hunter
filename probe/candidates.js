@@ -56,7 +56,7 @@ export const CANDIDATES = {
   // page is requested. Homepage is fetched just to discover the terms link.
   diggzterms: { termsOnly: true, name: 'Diggz (terms + robots)', origin: 'https://www.diggz.co', pages: ['/'], terms: ['https://www.diggz.co/terms'] },
   roomiterms: { termsOnly: true, name: 'Roomi (terms + robots)', origin: 'https://roomiapp.com', pages: ['/'], terms: ['https://roomiapp.com/legal?tab=terms'] },
-  spareroomterms: { termsOnly: true, name: 'SpareRoom US (terms + robots)', origin: 'https://www.spareroom.com', pages: ['/'], terms: ['https://www.spareroom.com/content/info/terms/'] },
+  spareroomterms: { termsOnly: true, name: 'SpareRoom US (terms + robots)', origin: 'https://www.spareroom.com', pages: ['/'], terms: ['https://www.spareroom.com/content/padded/terms-us'] },
   listingsprojectterms: { termsOnly: true, name: 'Listings Project (terms + robots)', origin: 'https://www.listingsproject.com', pages: ['/'], terms: ['https://www.listingsproject.com/terms'] },
   roomiematchterms: { termsOnly: true, name: 'RoomieMatch (terms + robots)', origin: 'https://www.roomiematch.com', pages: ['/'] },
 };
