@@ -636,7 +636,8 @@ function stepCarousel(ph, d) {
 
 // ---------- detail ----------
 let current = null;
-let openedFromApp = false;
+// Scroll position of the list when a listing was opened (restored on close).
+let listScrollY = null;
 function openDetail(id) {
   const l = state.byId.get(id);
   const dlg = $('#detail-dialog');
@@ -872,6 +873,7 @@ function setView(view) {
   $$('.tabs a, .tabbar a').forEach((a) => { if (a.dataset.view === view) a.setAttribute('aria-current', 'page'); else a.removeAttribute('aria-current'); });
   document.title = { browse: 'Apartment Hunter — rooms & apartments in NYC', saved: 'Your shortlist — Apartment Hunter', hidden: 'Hidden listings — Apartment Hunter', about: 'About the listings — Apartment Hunter' }[view];
   renderView();
+  if (state.loaded) state.rendered = true;
   if (changed) window.scrollTo({ top: 0, behavior: 'auto' });
 }
 
@@ -879,9 +881,41 @@ function route() {
   const h = location.hash;
   const m = h.match(/listing=([^&]+)/);
   if (m) { openDetail(decodeURIComponent(m[1])); return; }
+  const wasOpen = $('#detail-dialog').open;
   closeDetail();
   const view = { '#/saved': 'saved', '#/hidden': 'hidden', '#/about': 'about' }[h] || 'browse';
+  // Coming back from a listing to the same view: leave the list exactly as it
+  // was (re-rendering 80+ cards resets carousels and reloads photos on phones).
+  if (state.rendered && view === state.view) {
+    if (wasOpen || listScrollY != null) restoreListScroll();
+    return;
+  }
   setView(view);
+}
+
+// Opening a listing from the list: one history entry marked as ours, so
+// closing it (button, Esc, browser back or the phone's back swipe) always
+// returns to the same place in the same list.
+function openFromList(id) {
+  listScrollY = window.scrollY;
+  history.pushState({ ahDetail: true }, '', `#listing=${encodeURIComponent(id)}`);
+  openDetail(id);
+}
+function restoreListScroll() {
+  const y = listScrollY;
+  listScrollY = null;
+  if (y != null && Math.abs(window.scrollY - y) > 40) window.scrollTo({ top: y, behavior: 'auto' });
+}
+
+// Touch taps that are really scroll gestures must not open a listing: a tap
+// that stops a fling (iOS delivers it as a click), a finger that moved, or a
+// long press. Returns true if this click should be ignored.
+const tapGuard = { lastScroll: 0, down: null, moved: false };
+function isScrollTap(e) {
+  if (e.detail === 0) return false; // keyboard (Enter) — never a scroll gesture
+  const d = tapGuard.down;
+  if (!d || d.pointerType === 'mouse') return false;
+  return performance.now() - tapGuard.lastScroll < 400 || tapGuard.moved || e.timeStamp - d.t > 600;
 }
 const viewHash = () => ({ saved: '#/saved', hidden: '#/hidden', about: '#/about' }[state.view] || '#/');
 
@@ -963,7 +997,7 @@ function bind() {
     if (act === 'save') { toggleSave(id); return; }
     if (act === 'hide') { toggleHide(id); return; }
     if (act === 'unsave') { toggleSave(id); return; }
-    if (act === 'open') { openedFromApp = true; location.hash = `listing=${encodeURIComponent(id)}`; }
+    if (act === 'open') { if (!isScrollTap(e)) openFromList(id); }
   };
   $('#grid').addEventListener('click', onCards);
   $('#saved-grid').addEventListener('click', onCards);
@@ -978,7 +1012,18 @@ function bind() {
     // Preload the second photo when the pointer arrives, so the first swipe is instant.
     $(g).addEventListener('pointerover', (e) => { const ph = e.target.closest('.ph[data-count]'); if (ph && !ph._warm) { ph._warm = true; loadSlide(ph.querySelector('.ph-track').children[1]); } });
   }
-  document.addEventListener('click', (e) => { if (e.target.closest('a.card-link')) openedFromApp = true; }, true);
+  // Listing links (card titles, hidden list): open in-app, or ignore scroll-taps.
+  document.addEventListener('click', (e) => {
+    const a = e.target.closest('a.card-link');
+    if (!a || e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey) return;
+    e.preventDefault();
+    const id = decodeURIComponent((a.getAttribute('href') || '').replace(/^#listing=/, ''));
+    if (id && !isScrollTap(e)) openFromList(id);
+  }, true);
+  addEventListener('scroll', () => { tapGuard.lastScroll = performance.now(); }, { passive: true });
+  addEventListener('pointerdown', (e) => { tapGuard.down = { x: e.clientX, y: e.clientY, t: e.timeStamp, pointerType: e.pointerType }; tapGuard.moved = false; }, { passive: true, capture: true });
+  addEventListener('pointermove', (e) => { const d = tapGuard.down; if (d && Math.hypot(e.clientX - d.x, e.clientY - d.y) > 10) tapGuard.moved = true; }, { passive: true, capture: true });
+  addEventListener('pointercancel', () => { tapGuard.moved = true; }, { passive: true, capture: true });
 
   // Photos that fail to load: honest fallback, never a stand-in image.
   document.addEventListener('load', (e) => { if (e.target.tagName === 'IMG') e.target.classList.add('loaded'); }, true);
@@ -1026,8 +1071,10 @@ function bind() {
     if (more) { const el = $('#d-desc'); const open = el.classList.toggle('clamped'); more.textContent = open ? 'Read the full post' : 'Show less'; more.setAttribute('aria-expanded', String(!open)); }
   });
   detail.addEventListener('close', () => {
-    if (!location.hash.startsWith('#listing=')) return;
-    if (openedFromApp) { openedFromApp = false; history.back(); } else history.replaceState(null, '', viewHash());
+    if (!location.hash.startsWith('#listing=')) { restoreListScroll(); return; }
+    // Our own entry: step back to the list. A shared/direct link: replace it.
+    if (history.state?.ahDetail) history.back();
+    else { history.replaceState(null, '', viewHash()); restoreListScroll(); }
   });
 
   const lb = $('#lightbox');
