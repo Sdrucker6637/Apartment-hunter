@@ -10,6 +10,7 @@ name: Publish site (GitHub Pages)
 #      its cooldown (FACEBOOK_COLLECTION_COOLDOWN_HOURS, default 36 — see
 #      scraper/config.js) has passed and the monthly record guard allows it;
 #      otherwise it re-uses the newest completed snapshot (no collection).
+#      A manual run with facebook_collect_now ticked skips the cooldown once.
 #      A source that fails keeps its previously published listings.
 #   3. sanitize + privacy-audit (scripts/sanitize.js), then a publish guard
 #      (scripts/publish-guard.js): if either fails, nothing is deployed and
@@ -33,6 +34,11 @@ on:
         description: 'Facebook: reuse a specific Bright Data snapshot ("latest" or an id) instead of the automatic plan; blank = automatic (cooldown)'
         required: false
         default: ''
+      facebook_collect_now:
+        description: 'Facebook: start a NEW Bright Data collection now, skipping the cooldown (this run only; the monthly record guard still applies)'
+        type: boolean
+        required: false
+        default: false
       data:
         description: 'refresh = normal production refresh; keep = republish the currently published data unchanged (site/UI-only deploy, no scraping)'
         required: false
@@ -100,6 +106,8 @@ jobs:
           BRIGHTDATA_API_KEY: ${{ secrets.BRIGHTDATA_API_KEY }}
           FACEBOOK_GROUPS: ${{ vars.FACEBOOK_GROUPS }}
           FACEBOOK_REUSE_SNAPSHOT: ${{ inputs.facebook_snapshot }}
+          # Only ever 'true' on a manual run with the box ticked; scheduled runs leave it empty.
+          FACEBOOK_COLLECT_NOW: ${{ inputs.facebook_collect_now }}
           FACEBOOK_COLLECTION_COOLDOWN_HOURS: ${{ vars.FACEBOOK_COLLECTION_COOLDOWN_HOURS }}
           FACEBOOK_MONTHLY_RECORD_BUDGET: ${{ vars.FACEBOOK_MONTHLY_RECORD_BUDGET }}
           FACEBOOK_MONTHLY_SAFETY_BUFFER: ${{ vars.FACEBOOK_MONTHLY_SAFETY_BUFFER }}

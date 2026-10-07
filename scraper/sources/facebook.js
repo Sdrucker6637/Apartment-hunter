@@ -476,9 +476,12 @@ export function planCollection({ fb, state = null, lastSuccessAt = null, snapsho
     : { ...base, action: 'none', reason: `${reason}; no reusable snapshot, so nothing was collected (earlier listings are kept)` });
 
   if (last == null && !snapshots) return { ...base, action: 'none', reason: 'the last collection time is unknown (no saved state and the Bright Data snapshot list is unavailable); not collecting to be safe' };
-  if (last != null && now < last + fb.collectionCooldownHours * 3600000) return reuse(`collection cooldown (${fb.collectionCooldownHours}h) runs until ${nextCollectionAfter}`);
+  if (!fb.collectNow && last != null && now < last + fb.collectionCooldownHours * 3600000) return reuse(`collection cooldown (${fb.collectionCooldownHours}h) runs until ${nextCollectionAfter}`);
   if (fb.monthlyRecordBudget > 0 && guardUsed + expected > guardLimit) return reuse(`monthly record guard: ${guardUsed} counted + ~${expected} expected would exceed ${guardLimit} (${fb.monthlyRecordBudget} budget - ${fb.monthlySafetyBuffer} buffer)`);
-  return { ...base, action: 'collect', reason: last == null ? 'no earlier collection found' : `cooldown passed (last collection ${new Date(last).toISOString()})` };
+  const why = last == null ? 'no earlier collection found'
+    : now < last + fb.collectionCooldownHours * 3600000 ? `requested manually (facebook_collect_now), cooldown skipped (last collection ${new Date(last).toISOString()})`
+      : `cooldown passed (last collection ${new Date(last).toISOString()})`;
+  return { ...base, action: 'collect', reason: why };
 }
 
 // ---------- adapter entry point ----------

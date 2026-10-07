@@ -101,6 +101,7 @@ repository variables, blank = default):
 | --- | --- | --- |
 | `FACEBOOK_MAX_WINDOW_DAYS` | 7 | Longest date window a run can request |
 | `FACEBOOK_COLLECTION_COOLDOWN_HOURS` | 36 | Minimum time between NEW collections; runs in between reuse the newest snapshot |
+| `FACEBOOK_COLLECT_NOW` | off | Set by the Pages workflow's manual **facebook_collect_now** checkbox: that one run starts a new collection despite the cooldown (the monthly guard still applies). Scheduled runs never set it |
 | `FACEBOOK_MONTHLY_RECORD_BUDGET` | 5000 | Monthly record guard (0 = off) |
 | `FACEBOOK_MONTHLY_SAFETY_BUFFER` | 500 | No new collection if counted + expected records would pass budget − buffer |
 | `FACEBOOK_MAX_GROUPS` | 3 | Most Groups queried per run |

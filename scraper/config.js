@@ -47,6 +47,9 @@ export const config = {
     // "latest" or a snapshot id: re-download an existing Bright Data snapshot
     // instead of collecting (no new records). Manual runs only.
     reuseSnapshot: (process.env.FACEBOOK_REUSE_SNAPSHOT || '').trim(),
+    // Manual runs only (workflow input facebook_collect_now): start a new
+    // collection even inside the cooldown. The monthly guard still applies.
+    collectNow: process.env.FACEBOOK_COLLECT_NOW === 'true',
     // Verify runs only: write every post + classification for the encrypted parser audit.
     dumpRaw: !!process.env.FACEBOOK_DUMP_RAW,
   },

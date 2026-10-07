@@ -461,6 +461,21 @@ test('monthly record guard: no new collection when counted + expected would pass
   assert.equal(unm.action, 'reuse');
 });
 
+test('facebook_collect_now skips the cooldown only when requested; the monthly guard still applies', () => {
+  const fb = fbCfg().facebook;
+  const snaps = [readySnap()];
+  const now = Date.parse(T0) + 2 * H; // well inside the cooldown
+  const state = { lastCollectedAt: T0, snapshotId: 's_prev', month: '2026-09', monthRecords: 189, lastRecords: 189 };
+  assert.equal(fb.collectNow, false, 'off unless the manual input is ticked');
+  assert.equal(planCollection({ fb, state, snapshots: snaps, now }).action, 'reuse');
+  const forced = planCollection({ fb: { ...fb, collectNow: true }, state, snapshots: snaps, now });
+  assert.equal(forced.action, 'collect');
+  assert.match(forced.reason, /requested manually/);
+  const capped = planCollection({ fb: { ...fb, collectNow: true }, state: { ...state, monthRecords: 4400 }, snapshots: snaps, now });
+  assert.equal(capped.action, 'reuse');
+  assert.match(capped.reason, /monthly record guard/);
+});
+
 test('a collection that times out still starts the cooldown; the next run reuses and counts its snapshot', async () => {
   const slow = fakeBrightData([], { runningPolls: 1000, snapshots: [readySnap()] });
   const previous = { lastSuccessAt: T0, state: { lastCollectedAt: T0, snapshotId: 's_prev', month: '2026-09', monthRecords: 189, lastRecords: 189 } };
