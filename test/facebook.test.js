@@ -112,13 +112,32 @@ test('8. move-in date is parsed relative to the post date', () => {
   assert.equal(l.moveIn.value?.date, '2026-10-01');
 });
 
+test('9b. a listing link always opens the post, never the bare group', () => {
+  // The provider's own post link wins over one rebuilt from ids.
+  assert.equal(recordToPost(rec({ url: 'https://www.facebook.com/groups/111222333/permalink/444555666/?__cft__[0]=x' })).url,
+    'https://www.facebook.com/groups/111222333/permalink/444555666/');
+  // `url` holding the group itself: the post link comes from another field, else from the ids.
+  assert.equal(recordToPost(rec({ url: 'https://www.facebook.com/groups/111222333/', post_url: 'https://www.facebook.com/groups/111222333/posts/777/' })).url,
+    'https://www.facebook.com/groups/111222333/posts/777/');
+  assert.equal(recordToPost(rec({ url: 'https://www.facebook.com/groups/111222333/' })).url, 'https://www.facebook.com/groups/111222333/posts/444555666/');
+  // Graph-style "<group>_<post>" ids and pfbid ids.
+  assert.equal(recordToPost(rec({ url: undefined, post_id: '111222333_444555666' })).url, 'https://www.facebook.com/groups/111222333/posts/444555666/');
+  assert.equal(recordToPost(rec({ url: 'https://www.facebook.com/groups/111222333/posts/pfbid02abcXYZ/' })).url, 'https://www.facebook.com/groups/111222333/posts/pfbid02abcXYZ/');
+  assert.equal(canonicalPostUrl({ url: 'https://www.facebook.com/permalink.php?story_fbid=55&id=66&ref=x' }), 'https://www.facebook.com/permalink.php?story_fbid=55&id=66');
+  assert.equal(canonicalPostUrl({ url: 'https://www.facebook.com/groups/1/?multi_permalinks=2', groupId: '1', postId: '2' }), 'https://www.facebook.com/groups/1/posts/2/');
+  // No post id anywhere: no link (and no listing), rather than the group feed.
+  assert.equal(recordToPost(rec({ url: 'https://www.facebook.com/groups/111222333/', post_id: undefined })).url, null);
+  assert.equal(canonicalPostUrl({ url: 'https://www.facebook.com/groups/111222333/', groupId: '111222333', postId: 'abc def' }), null);
+  assert.equal(postToListing(recordToPost(rec({ url: 'https://www.facebook.com/groups/111222333/', post_id: undefined }))).listing.originalUrl, null);
+});
+
 test('9. post id / URL normalization and FACEBOOK_GROUPS parsing', () => {
   const p = recordToPost(rec());
   assert.equal(p.postId, '444555666');
   assert.equal(p.url, 'https://www.facebook.com/groups/111222333/posts/444555666/');
   const p2 = recordToPost(rec({ post_id: undefined, group_id: undefined, url: 'https://m.facebook.com/groups/nycrooms/permalink/987654321/?ref=share' }));
   assert.equal(p2.postId, '987654321');
-  assert.equal(p2.url, 'https://www.facebook.com/groups/nycrooms/posts/987654321/');
+  assert.equal(p2.url, 'https://www.facebook.com/groups/nycrooms/permalink/987654321/');
   assert.equal(canonicalPostUrl({ url: 'https://evil.example/groups/1/posts/2/' }), null);
   assert.deepEqual(parseGroups('["https://www.facebook.com/groups/NYCRooms/?ref=share", "roommatesnyc"]'),
     ['https://www.facebook.com/groups/NYCRooms/', 'https://www.facebook.com/groups/roommatesnyc/']);

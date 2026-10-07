@@ -219,7 +219,8 @@ export async function run({ offline = false, dryRun = false, log = console.log, 
     if (l.price.share != null && l.price.share > config.maxShare) { drop('over budget', l.source); continue; }
     // Age: the later of posted and last-edited-on-source (an active listing the lister updated recently is current).
     const dates = [l.postedAt, l.sourceUpdatedAt].filter(Boolean).map(Date.parse).filter(Number.isFinite);
-    if (dates.length && now - Math.max(...dates) > config.maxAgeDays * 86400000) { drop('too old', l.source); continue; }
+    const maxAgeDays = Math.min(config.maxAgeDays, config[l.source]?.maxAgeDays ?? Infinity);
+    if (dates.length && now - Math.max(...dates) > maxAgeDays * 86400000) { drop('too old', l.source); continue; }
     if (!incrementalSources.has(l.source) && l.lastSeenAt && now - Date.parse(l.lastSeenAt) > config.goneAfterDays * 86400000) { drop('no longer listed', l.source); continue; }
     kept.push(l);
   }
@@ -239,7 +240,7 @@ export async function run({ offline = false, dryRun = false, log = console.log, 
   const status = {
     generatedAt: scrapedAt,
     dataKind: 'REAL',
-    criteria: { maxShare: config.maxShare, defaultBedrooms: config.defaultBedrooms, maxAgeDays: config.maxAgeDays },
+    criteria: { maxShare: config.maxShare, defaultBedrooms: config.defaultBedrooms, maxAgeDays: config.maxAgeDays, facebookMaxAgeDays: config.facebook.maxAgeDays },
     totals: {
       listings: listings.length,
       withPhotos: listings.filter((l) => l.photos.length).length,

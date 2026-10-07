@@ -27,6 +27,10 @@ export const config = {
     apiKey: process.env.BRIGHTDATA_API_KEY || '',
     groups: parseGroups(process.env.FACEBOOK_GROUPS),
     maxGroups: num(process.env.FACEBOOK_MAX_GROUPS, 3),
+    // Group posts are usually deleted once the room is taken, and a deleted
+    // post's link opens the group feed instead. Collections only fetch new
+    // posts, so deletions are never seen: older posts are dropped instead.
+    maxAgeDays: num(process.env.FACEBOOK_MAX_AGE_DAYS, 14),
     initialWindowDays: num(process.env.FACEBOOK_INITIAL_WINDOW_DAYS, 7),
     maxWindowDays: num(process.env.FACEBOOK_MAX_WINDOW_DAYS, 7),
     overlapHours: num(process.env.FACEBOOK_OVERLAP_HOURS, 6),

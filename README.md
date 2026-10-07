@@ -104,6 +104,7 @@ repository variables, blank = default):
 | `FACEBOOK_MONTHLY_RECORD_BUDGET` | 5000 | Monthly record guard (0 = off) |
 | `FACEBOOK_MONTHLY_SAFETY_BUFFER` | 500 | No new collection if counted + expected records would pass budget − buffer |
 | `FACEBOOK_MAX_GROUPS` | 3 | Most Groups queried per run |
+| `FACEBOOK_MAX_AGE_DAYS` | 14 | Facebook posts older than this are dropped. Posts are usually deleted once the room is taken, and a deleted post's link opens the group feed; collections only fetch new posts, so deletions can't be seen |
 | `FACEBOOK_MAX_WAIT_SECONDS` | 1200 | Gives up after this; a collection is never re-triggered, and one that times out still starts the cooldown |
 
 The monthly guard counts the records that this pipeline's collections actually

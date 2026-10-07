@@ -233,27 +233,39 @@ export function recordPhotos(rec) {
 // "…/groups/<gid>/posts/<pid>/", "…/permalink/<pid>/", "?story_fbid=<pid>" …
 export function postIdFrom(url) {
   if (!url) return null;
-  return /\/(?:posts|permalink)\/(\d+)/.exec(url)?.[1] || /[?&](?:story_fbid|fbid|multi_permalinks)=(\d+)/.exec(url)?.[1] || null;
+  return /\/(?:posts|permalink)\/(\d+|pfbid\w+)/.exec(url)?.[1] || /[?&](?:story_fbid|fbid|multi_permalinks)=(\d+|pfbid\w+)/.exec(url)?.[1] || null;
 }
 
+// A link that opens one post, not a group or profile page.
+const POST_PATH = /\/(?:posts|permalink)\/[^/?#]+|\/share\/p\/[^/?#]+|\/permalink\.php$|\/story\.php$/i;
+
+// Prefers the post URL the provider returned (as Facebook itself links the
+// post); builds /groups/<gid>/posts/<pid>/ only when there is none. Never
+// returns a bare group URL: that opens the group feed, not the listing.
 export function canonicalPostUrl({ url, groupId, postId }) {
-  if (groupId && postId) return `https://www.facebook.com/groups/${groupId}/posts/${postId}/`;
-  if (!url) return null;
   try {
     const u = new URL(url);
-    if (!/(^|\.)facebook\.com$/i.test(u.hostname)) return null;
-    u.hostname = 'www.facebook.com';
-    for (const k of [...u.searchParams.keys()]) if (!/^(story_fbid|id|fbid|multi_permalinks)$/.test(k)) u.searchParams.delete(k);
-    u.hash = '';
-    return u.href;
-  } catch { return null; }
+    if (/(^|\.)facebook\.com$/i.test(u.hostname) && POST_PATH.test(u.pathname)) {
+      u.hostname = 'www.facebook.com';
+      for (const k of [...u.searchParams.keys()]) if (!/^(story_fbid|id|fbid)$/.test(k)) u.searchParams.delete(k);
+      if (/\.php$/.test(u.pathname) && !u.searchParams.get('story_fbid')) throw new Error('no post id');
+      u.hash = '';
+      return u.href;
+    }
+  } catch { /* fall through to the ids */ }
+  // Graph-style ids are "<groupId>_<postId>".
+  const pid = postId && String(postId).includes('_') ? String(postId).split('_').pop() : postId;
+  if (groupId && pid && /^(?:\d+|pfbid\w+)$/.test(pid)) return `https://www.facebook.com/groups/${groupId}/posts/${pid}/`;
+  return null;
 }
 
 export function recordToPost(rec, { groupUrl = null } = {}) {
   if (!rec || typeof rec !== 'object') return { error: 'not an object' };
   if (rec.error || rec.error_code) return { error: String(rec.error_code || 'error') };
   const text = [rec.content, rec.post_text, rec.text, rec.message, rec.description].find((t) => typeof t === 'string' && t.trim()) || '';
-  const rawUrl = rec.url || rec.post_url || rec.link || null;
+  // The first candidate that links one post (some records carry the group URL in `url`).
+  const urls = [rec.post_url, rec.url, rec.link, rec.permalink].filter((u) => typeof u === 'string' && u);
+  const rawUrl = urls.find((u) => postIdFrom(u) || POST_PATH.test(u.split(/[?#]/)[0])) || urls[0] || null;
   const gUrl = rec.group_url || rec.input?.url || groupUrl || null;
   const groupId = rec.group_id || (gUrl && /\/groups\/([^/?#]+)/.exec(gUrl)?.[1]) || (rawUrl && /\/groups\/([^/?#]+)/.exec(rawUrl)?.[1]) || null;
   const postId = String(rec.post_id || rec.id || postIdFrom(rawUrl) || '') || null;
@@ -495,7 +507,7 @@ export async function fetchListings(cfg, log = () => {}, { previous = null, now 
     provider: 'Bright Data', datasetId: DATASET_ID, groups, skippedGroups: fb.groups.length - groups.length,
     window: { start: start.toISOString(), end: end.toISOString() },
     recordsRetrieved: 0, errorRecords: 0, posts: 0, housingListings: 0,
-    rejected: { seeking: 0, 'not-housing': 0, 'no-text': 0, 'outside-nyc': 0 },
+    rejected: { seeking: 0, 'not-housing': 0, 'no-text': 0, 'outside-nyc': 0, 'no-post-link': 0 },
     recordsWithImages: 0, photoUrls: 0, expiredPhotoUrls: 0, fieldsSeen: [],
   };
   let records;
@@ -559,7 +571,8 @@ export async function fetchListings(cfg, log = () => {}, { previous = null, now 
     const { listing, reason } = postToListing(post);
     if (fb.dumpRaw) audit.push({ postId: post.postId, url: post.url, postedAt: post.postedAt, group: post.groupName, photos: post.photos.length, reason, text: post.text });
     if (!listing) { stats.rejected[reason] = (stats.rejected[reason] || 0) + 1; continue; }
-    if (!listing.originalUrl || seen.has(listing.sourceId)) continue;
+    if (!listing.originalUrl) { stats.rejected['no-post-link'] = (stats.rejected['no-post-link'] || 0) + 1; continue; }
+    if (seen.has(listing.sourceId)) continue;
     seen.add(listing.sourceId);
     out.push(listing);
   }
