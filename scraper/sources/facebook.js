@@ -518,6 +518,27 @@ function linkShapes(records, listings) {
     shapes.idRelations ??= {};
     shapes.idRelations[rel] = (shapes.idRelations[rel] || 0) + 1;
   }
+  const bump = (k, v) => { shapes[k] ??= {}; shapes[k][v] = (shapes[k][v] || 0) + 1; };
+  for (const rec of records) {
+    if (!rec || typeof rec !== 'object') continue;
+    const pid = String(rec.post_id || '');
+    bump('post_id prefix', pid.slice(0, 2) + '…');
+    // Every facebook.com link anywhere in the record (attachments included), masked,
+    // and whether a group-post id it carries (set=gm.<id>, story_fbid, /posts/<id>) matches post_id.
+    const seen = new Set();
+    const walk = (v, path) => {
+      if (typeof v === 'string') {
+        if (/facebook\.com\//.test(v) && !PROFILE_KEYS.test(path)) {
+          bump('links in record', `${path.replace(/\.\d+/g, '[]')}: ${maskLink(v)}`);
+          const gm = /[?&]set=(?:gm|pcb|g)\.(\d+)/.exec(v)?.[1] || /story_fbid=(\d+)/.exec(v)?.[1] || /\/posts\/(\d+)/.exec(v)?.[1];
+          if (gm && path !== 'url' && !seen.has(path)) { seen.add(path); bump('embedded post id vs post_id', `${path.replace(/\.\d+/g, '[]')}: ${gm === pid ? 'same' : `different (${gm.length}d, ${gm.slice(0, 2)}…)`}`); }
+        }
+      } else if (Array.isArray(v)) v.forEach((x, i) => walk(x, `${path}.${i}`));
+      else if (v && typeof v === 'object') for (const [k, x] of Object.entries(v)) walk(x, path ? `${path}.${k}` : k);
+    };
+    walk(rec, '');
+  }
+  shapes.fields = Object.keys(records.find((r) => r && typeof r === 'object') || {}).sort().join(',');
   return shapes;
 }
 
