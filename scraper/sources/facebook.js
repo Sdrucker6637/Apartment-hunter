@@ -508,6 +508,16 @@ function linkShapes(records, listings) {
     }
   }
   for (const l of listings) add('→ published link', l.originalUrl);
+  // How the ids relate (equal or not, and their lengths), never the ids themselves.
+  for (const rec of records) {
+    if (!rec || typeof rec !== 'object') continue;
+    const urlId = postIdFrom(rec.url) || '';
+    const pid = String(rec.post_id || '');
+    const sc = String(rec.shortcode || '');
+    const rel = `url=${urlId.length}d post_id=${pid.length}d shortcode=${sc.length}d · url${urlId === pid ? '=' : '≠'}post_id · shortcode${sc === pid ? '=' : '≠'}post_id · shortcode${sc === urlId ? '=' : '≠'}url · group_id ${String(rec.group_id || '') === (/\/groups\/(\d+)/.exec(rec.url || '')?.[1] || '') ? '=' : '≠'} url group`;
+    shapes.idRelations ??= {};
+    shapes.idRelations[rel] = (shapes.idRelations[rel] || 0) + 1;
+  }
   return shapes;
 }
 
