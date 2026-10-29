@@ -596,6 +596,15 @@ export async function fetchListings(cfg, log = () => {}, { previous = null, now 
   stats.earlierSnapshots = earlier.snapshots;
   stats.earlierRecords = earlier.records.length;
   records = records.concat(earlier.records);
+  {
+    const hits = records.filter((r) => String(r?.post_id) === '40891427117123489');
+    log(`facebook: LOOKUP found in ${hits.length} snapshot record(s)`);
+    const r = hits[0];
+    if (r) log(`facebook: LOOKUP date=${r.date_posted} photos=${(r.attachments || []).filter((a) => a?.type === 'Photo').length} comments=${r.num_comments} likes=${JSON.stringify(r.likes)} shares=${r.num_shares} post_type=${r.post_type} photo=${(r.attachments || []).find((a) => a?.attachment_url)?.attachment_url || '-'} text=${JSON.stringify(String(r.content || '').slice(0, 300))}`);
+    // How old are the posts whose links work vs this one: date range per snapshot.
+    const dates = records.map((x) => Date.parse(x?.date_posted)).filter(Number.isFinite).sort((a, b) => a - b);
+    log(`facebook: LOOKUP records span ${new Date(dates[0]).toISOString()} .. ${new Date(dates[dates.length - 1]).toISOString()}`);
+  }
   const audit = [];
   stats.recordsRetrieved = primaryCount;
   const keys = new Set();
