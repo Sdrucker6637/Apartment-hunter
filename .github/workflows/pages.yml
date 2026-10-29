@@ -12,10 +12,10 @@ name: Publish site (GitHub Pages)
 #      otherwise it re-uses the newest completed snapshot (no collection).
 #      A manual run with facebook_collect_now ticked skips the cooldown once.
 #      A source that fails keeps its previously published listings.
-#   3. sanitize + privacy-audit (scripts/sanitize.js), then a publish guard
+#   3. prepare + publish audit (scripts/sanitize.js), then a publish guard
 #      (scripts/publish-guard.js): if either fails, nothing is deployed and
 #      the current site stays up.
-#   4. deploy the sanitized artifact to GitHub Pages.
+#   4. deploy the artifact to GitHub Pages.
 #
 # No scraped data is committed to the repository; the site is deployed as a
 # Pages artifact, and the state needed between runs lives in the published

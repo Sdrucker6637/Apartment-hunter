@@ -484,6 +484,37 @@ export function planCollection({ fb, state = null, lastSuccessAt = null, snapsho
   return { ...base, action: 'collect', reason: why };
 }
 
+const groupKey = (u) => (u && /\/groups\/([^/?#]+)/.exec(u)?.[1]) || null;
+
+// Records of the ready snapshots created within the age limit, newest first,
+// other than the one this run already read; only posts of configured groups.
+export async function earlierRecords({ fb, snapshots, primaryId, groups, now = Date.now(), fetchImpl = fetch, wait = sleep, log = () => {} }) {
+  const out = { snapshots: 0, records: [] };
+  let list = snapshots;
+  if (!list) {
+    try { list = await listSnapshots({ apiKey: fb.apiKey, fetchImpl }); } catch (err) {
+      if (err instanceof AuthRequiredError) throw err;
+      log(`facebook: earlier snapshots not re-read (snapshot list unavailable)`);
+      return out;
+    }
+  }
+  const since = now - (fb.maxAgeDays + 1) * 86400000;
+  const wanted = new Set(groups.map(groupKey).filter(Boolean));
+  const picks = list.filter((x) => x.id !== primaryId && x.size !== 0 && Date.parse(x.created) >= since)
+    .sort((a, b) => Date.parse(b.created) - Date.parse(a.created)).slice(0, fb.maxEarlierSnapshots ?? 12);
+  for (const snap of picks) {
+    try {
+      const recs = await downloadSnapshot({ apiKey: fb.apiKey, snapshotId: snap.id, deadline: Date.now() + 120000, pollSeconds: fb.pollSeconds, fetchImpl, wait });
+      out.records.push(...recs.filter((r) => r && typeof r === 'object' && wanted.has(groupKey(r.group_url) || groupKey(r.input?.url) || groupKey(r.url))));
+      out.snapshots++;
+    } catch (err) {
+      if (err instanceof AuthRequiredError) throw err;
+      log(`facebook: earlier snapshot not re-read (${String(err.message).slice(0, 120)})`);
+    }
+  }
+  return out;
+}
+
 // ---------- adapter entry point ----------
 
 export async function fetchListings(cfg, log = () => {}, { previous = null, now = Date.now(), fetchImpl = fetch, wait = sleep } = {}) {
@@ -556,8 +587,17 @@ export async function fetchListings(cfg, log = () => {}, { previous = null, now 
     month: state.month, monthRecords: state.monthRecords || 0, monthUnmeasured: state.monthUnmeasured || 0,
     monthlyRecordBudget: fb.monthlyRecordBudget, monthlySafetyBuffer: fb.monthlySafetyBuffer,
   };
+  // Earlier snapshots Bright Data still keeps (16 days) that fall within the
+  // age limit are re-read as well: a download, not a new collection. Every
+  // post still on the site is then rebuilt by the current code (links, text)
+  // instead of being carried over as it was first published.
+  const primaryCount = records.length;
+  const earlier = await earlierRecords({ fb, snapshots, primaryId: stats.snapshotId, groups, now, fetchImpl, wait, log });
+  stats.earlierSnapshots = earlier.snapshots;
+  stats.earlierRecords = earlier.records.length;
+  records = records.concat(earlier.records);
   const audit = [];
-  stats.recordsRetrieved = records.length;
+  stats.recordsRetrieved = primaryCount;
   const keys = new Set();
   const out = [];
   const seen = new Set();
@@ -581,8 +621,8 @@ export async function fetchListings(cfg, log = () => {}, { previous = null, now 
   }
   stats.housingListings = out.length;
   stats.fieldsSeen = [...keys].sort(); // field NAMES only (no values) to document the real record shape
-  if (records.length > fb.maxRecordsWarn) log(`facebook: WARNING ${records.length} records in one run (above FACEBOOK_MAX_RECORDS_WARN=${fb.maxRecordsWarn})`);
-  log(`facebook: ${records.length} records (${stats.errorRecords} error records), ${stats.posts} posts, ${out.length} housing listings, ${stats.recordsWithImages} posts with image URLs`);
+  if (primaryCount > fb.maxRecordsWarn) log(`facebook: WARNING ${primaryCount} records in one run (above FACEBOOK_MAX_RECORDS_WARN=${fb.maxRecordsWarn})`);
+  log(`facebook: ${primaryCount} records${earlier.records.length ? ` + ${earlier.records.length} re-read from ${earlier.snapshots} earlier snapshot(s)` : ''} (${stats.errorRecords} error records), ${stats.posts} posts, ${out.length} housing listings, ${stats.recordsWithImages} posts with image URLs`);
   out.sourceStats = stats;
   out.state = state;
   // Every post id seen this run, accepted or not: this run's result replaces

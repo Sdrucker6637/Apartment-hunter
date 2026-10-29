@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import {
   parseGroups, bdDate, planCollection, dateWindow, collect, recordToPost, recordPhotos, photoExpiry,
   canonicalPostUrl, classifyHousing, postToListing, fetchListings, DATASET_ID,
+  earlierRecords,
 } from '../scraper/sources/facebook.js';
 import { normalizeListing } from '../scraper/schema.js';
 import { dedupe } from '../scraper/dedupe.js';
@@ -517,4 +518,25 @@ test('pipeline: a failed Facebook run keeps earlier listings AND its cooldown st
   } finally {
     if (saved == null) await rm(statusPath, { force: true }); else await wf(statusPath, saved);
   }
+});
+
+test('earlier snapshots within the age limit are re-read (no collection), other groups ignored', async () => {
+  const now = Date.parse('2026-10-29T12:00:00Z');
+  const day = 86400000;
+  const snaps = [
+    { id: 's_now', created: new Date(now - 1 * day).toISOString(), size: 2 },
+    { id: 's_5d', created: new Date(now - 5 * day).toISOString(), size: 2 },
+    { id: 's_20d', created: new Date(now - 20 * day).toISOString(), size: 2 },
+  ];
+  const calls = [];
+  const res = (body) => ({ status: 200, ok: true, json: async () => body, text: async () => '' });
+  const fetchImpl = async (url) => {
+    calls.push(url);
+    return res([rec({ post_id: '5' }), rec({ post_id: '6', group_url: 'https://www.facebook.com/groups/999/', group_id: '999', url: 'https://www.facebook.com/groups/999/posts/6/' })]);
+  };
+  const out = await earlierRecords({ fb: { ...fbCfg().facebook, maxAgeDays: 14 }, snapshots: snaps, primaryId: 's_now', groups: ['https://www.facebook.com/groups/111222333/'], now, fetchImpl, wait: async () => {} });
+  assert.equal(out.snapshots, 1);
+  assert.deepEqual(calls.map((u) => /snapshot\/(\w+)/.exec(u)[1]), ['s_5d'], 'only the earlier snapshot inside the age limit');
+  assert.deepEqual(out.records.map((r) => r.post_id), ['5'], 'posts of other groups are not added');
+  assert.ok(!calls.some((u) => u.includes('/trigger')), 'never starts a collection');
 });

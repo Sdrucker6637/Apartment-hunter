@@ -411,6 +411,9 @@ input[type='checkbox']:disabled { opacity: .4; }
 .ptable td .basis { margin-left: 6px; }
 .d-card .btn.signal { min-height: 54px; font-size: 16px; }
 .d-card .small { margin: 0; font-size: 12.5px; color: var(--ink-3); }
+.d-contact { display: grid; gap: 8px; }
+.d-contact-h { margin: 4px 0 0; font-size: 12.5px; font-weight: 600; color: var(--ink-2); }
+.d-contact .btn { border-width: 1px; font-size: 14px; overflow-wrap: anywhere; }
 .d-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .d-actions .btn { border-width: 1px; font-size: 14px; }
 .d-actions .btn[aria-pressed='true'] { color: var(--signal-deep); border-color: var(--signal); background: var(--signal-wash); }

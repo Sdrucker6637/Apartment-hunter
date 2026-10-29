@@ -177,20 +177,16 @@ hours (`23 */3 * * *`) and on demand, and each run:
    (Roomster every run; Facebook per the cooldown above). A source that fails
    keeps its previously published listings and records the failure in
    `status.json`;
-3. sanitizes the output: emails and phone numbers are removed from listing
-   text, and street addresses are dropped except for business listings.
-   Personal names are removed only where the text explicitly introduces or
-   addresses someone ("my name is …", "Hi, I'm …,", "DM/contact/email …",
-   "Mr./Ms. …", "my friend/roommate …", "Meet …:", "About …:", a sign-off
-   line), plus that name's later repeats in the same post. Names without
-   such a cue are not detected — the rule never guesses which capitalized
-   words are names, so listing details (places, prices, dates) are kept.
-   Poster names/profile links from Facebook records are never stored at all;
-4. runs a privacy audit (`scripts/sanitize.js`) that fails on any email,
-   phone number, cued name or non-REAL listing left in the output, then a
-   publish guard (`scripts/publish-guard.js`) that fails on empty or stale
-   data;
-5. only if both pass, deploys the sanitized site as a Pages artifact. On any
+3. prepares the output: listing text is published as posted, contact
+   details included (posters share their phone numbers, emails and names
+   in public posts so renters can reach them; the site shows them as
+   call/email buttons). Street addresses are dropped except for business
+   listings, and poster names/profile links from Facebook records are not
+   stored;
+4. runs a publish audit (`scripts/sanitize.js`) that fails on any non-REAL
+   listing or listing text in status.json, then a publish guard
+   (`scripts/publish-guard.js`) that fails on empty or stale data;
+5. only if both pass, deploys the site as a Pages artifact. On any
    failure nothing is deployed and the current site stays up.
 
 No scraped data is committed to the repository. Manual inputs:

@@ -97,7 +97,7 @@ export const SOURCES = [
         'Collection provider: Bright Data ("Facebook - Posts by group URL", dataset gd_lz11l67o2cb3r0lkj3). Logged-off, public Groups only; private/members-only Groups return nothing.',
         'Not authorized by Meta. Meta\'s terms require its prior permission for automated collection (logged in or not); in Meta v. Bright Data (N.D. Cal., Jan 2024) the court held Meta\'s then-current terms did not bar Bright Data\'s logged-off collection of public data, and Meta dropped its remaining claims. Meta has since revised its terms.',
         'Bright Data\'s service uses rotating proxies and CAPTCHA handling on its side. Nothing in this project logs in to Facebook, uses cookies or session tokens, or contacts facebook.com.',
-        'Poster names and profile links from Bright Data records are never stored; emails, phone numbers and names introduced in the post text ("my name is…", "DM…", "my friend…") are removed by the sanitizer before publishing.',
+        'Poster names and profile links from Bright Data records are not stored. Post text is shown as posted, including the contact details the poster shared in it.',
         'Verified scope: one public group and one 7-day window on 2026-09-26. Other groups, private/members-only groups, longer windows and the field coverage of other posts are UNVERIFIED; not every post has photos, a price, or a stated roommate count.',
       ],
     },

@@ -173,6 +173,16 @@ function photoImg(p, l, i, { eager = false, thumb = true } = {}) {
   return `<img ${eager ? `src="${esc(src)}"` : `data-src="${esc(src)}"`}${full} alt="${esc(alt)}" loading="lazy" decoding="async" referrerpolicy="no-referrer">`;
 }
 
+// Phone numbers and emails the poster put in the post, as call/text/email links.
+function contactLinks(l) {
+  const phones = (l.contactPhones || []).filter((p) => /^\d{3}-\d{3}-\d{4}$/.test(p));
+  const emails = (l.contactEmails || []).filter((e) => /^[^\s@<>"']+@[^\s@<>"']+\.[a-z]{2,}$/i.test(e));
+  if (!phones.length && !emails.length) return '';
+  return `<div class="d-contact"><p class="d-contact-h">Contact from the post</p>${
+    phones.map((p) => `<a class="btn block" href="tel:+1${p.replace(/-/g, '')}">Call ${esc(p)}</a><a class="btn block" href="sms:+1${p.replace(/-/g, '')}">Text ${esc(p)}</a>`).join('')}${
+    emails.map((e) => `<a class="btn block" href="mailto:${esc(e)}">Email ${esc(e)}</a>`).join('')}</div>`;
+}
+
 function noPhoto(l, { link = true } = {}) {
   const url = safeUrl(l.originalUrl);
   const { headline } = placeOf(l);
@@ -538,7 +548,6 @@ function renderAbout() {
         <li><strong>Guess roommates</strong><span>A roommate count appears only when the listing states it.</span></li>
         <li><strong>Invent details</strong><span>Unknown move-in dates, neighborhoods and amenities are shown as not specified.</span></li>
         <li><strong>Use stock photos</strong><span>Every photo comes from the original post. No photos means the post had none.</span></li>
-        <li><strong>Publish contact details</strong><span>Emails, phone numbers and names in posts are removed. Get in touch through the original post.</span></li>
         <li><strong>Claim a listing</strong><span>Apartment Hunter doesn't own or verify listings. Always check with the poster, and never send money for a place you haven't seen.</span></li>
       </ul></section>
     <section><details class="tech"><summary><div><h2 class="ab-h">Technical source status</h2><p>Coverage, collection method and data quality for each source, from the latest run.</p></div></summary><div id="status-body"></div></details></section>`;
@@ -734,7 +743,7 @@ function openDetail(id) {
         ${l.title ? `<p class="d-title">${esc(l.title)}</p>` : ''}
         <dl class="d-keys">${keys}</dl>
         <section class="d-sec">
-          <h3>From the post <span class="muted">— original text, contact details removed</span></h3>
+          <h3>From the post <span class="muted">— original text</span></h3>
           ${desc ? `<p class="d-desc${long ? ' clamped' : ''}" id="d-desc">${esc(desc)}</p>${long ? '<button type="button" class="text-btn d-more" data-more aria-expanded="false" aria-controls="d-desc">Read the full post</button>' : ''}` : '<p class="d-desc muted">The post has no description.</p>'}
           <p class="d-attrib">Posted${l.postedAt ? ` ${l.postedAtApproximate ? 'about ' : ''}${esc(ago(l.postedAt))}` : ''} on ${esc(names.join(' and '))} · retrieved ${esc(ago(l.scrapedAt))}. Apartment Hunter doesn't own or verify this listing.</p>
         </section>
@@ -749,6 +758,7 @@ function openDetail(id) {
           <p class="price-note ${pr.tone}">${esc(pr.note)}</p>
           <table class="ptable">${priceRows}</table>
           ${contact ? `<a class="btn signal block" href="${esc(contact)}" target="_blank" rel="noopener noreferrer">View original on ${esc(platform)}${icon('out')}</a>` : ''}
+          ${contactLinks(l)}
           ${l.contact.method ? `<p class="small">${esc(l.contact.method)}</p>` : `<p class="small">Message the poster on ${esc(platform)}. Never send a deposit for a place you haven't seen.</p>`}
         </div>
         <div class="d-sources">
