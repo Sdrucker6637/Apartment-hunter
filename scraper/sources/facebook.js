@@ -484,6 +484,33 @@ export function planCollection({ fb, state = null, lastSuccessAt = null, snapsho
   return { ...base, action: 'collect', reason: why };
 }
 
+// The structure of each link-like field, with ids and names masked (no values
+// leave the run): which field holds the post link and what it looks like.
+const LINK_WORDS = new Set(['groups', 'posts', 'permalink', 'share', 'p', 'r', 'v', 'photo', 'photos', 'photo.php', 'permalink.php', 'story.php', 'marketplace', 'item', 'commerce', 'listing', 'media', 'set', 'watch', 'reel', 'videos']);
+export function maskLink(v) {
+  if (typeof v !== 'string') return v == null ? 'none' : typeof v;
+  if (!/^https?:\/\//i.test(v)) return /^\d+$/.test(v) ? 'digits' : /^\d+_\d+$/.test(v) ? 'digits_digits' : /^pfbid/.test(v) ? 'pfbid' : 'text';
+  try {
+    const u = new URL(v);
+    const path = u.pathname.split('/').map((seg) => (!seg || LINK_WORDS.has(seg) ? seg : /^\d+$/.test(seg) ? '#' : /^pfbid/.test(seg) ? 'pfbid' : '*')).join('/');
+    const q = [...u.searchParams.keys()].sort().join('&');
+    return `${u.hostname}${path}${q ? `?${q}` : ''}`;
+  } catch { return 'bad-url'; }
+}
+function linkShapes(records, listings) {
+  const shapes = {};
+  const add = (k, v) => { shapes[k] ??= {}; const m = maskLink(v); shapes[k][m] = (shapes[k][m] || 0) + 1; };
+  for (const rec of records) {
+    if (!rec || typeof rec !== 'object') continue;
+    for (const [k, v] of Object.entries(rec)) {
+      if (PROFILE_KEYS.test(k) && !/^(group_id|group_url|post_id)$/.test(k)) continue;
+      if (/^(url|post_url|link|permalink|post_id|id|group_id|group_url|shortcode|post_external_link|original_post_url)$/.test(k) || (typeof v === 'string' && /facebook\.com\//.test(v) && !IMAGE_HOST.test(v))) add(k, v);
+    }
+  }
+  for (const l of listings) add('→ published link', l.originalUrl);
+  return shapes;
+}
+
 // ---------- adapter entry point ----------
 
 export async function fetchListings(cfg, log = () => {}, { previous = null, now = Date.now(), fetchImpl = fetch, wait = sleep } = {}) {
@@ -581,6 +608,8 @@ export async function fetchListings(cfg, log = () => {}, { previous = null, now 
   }
   stats.housingListings = out.length;
   stats.fieldsSeen = [...keys].sort(); // field NAMES only (no values) to document the real record shape
+  stats.linkShapes = linkShapes(records, out);
+  log(`facebook: link shapes ${JSON.stringify(stats.linkShapes)}`);
   if (records.length > fb.maxRecordsWarn) log(`facebook: WARNING ${records.length} records in one run (above FACEBOOK_MAX_RECORDS_WARN=${fb.maxRecordsWarn})`);
   log(`facebook: ${records.length} records (${stats.errorRecords} error records), ${stats.posts} posts, ${out.length} housing listings, ${stats.recordsWithImages} posts with image URLs`);
   out.sourceStats = stats;
